@@ -29,6 +29,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+
 #include "absl/base/dynamic_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_format.h"
@@ -50,9 +51,25 @@ limitations under the License.
 #include "tsl/platform/status.h"
 #include "tsl/profiler/lib/traceme.h"
 
+#include "third_party/mpi/mpi.h"
+
 namespace xla {
 namespace cpu {
 namespace runtime {
+
+int mpi_rank, mpi_size;
+bool mpi_is_initialized = false;
+
+void mpi_init(){
+  if(!mpi_is_initialized){
+    MPI_Init(NULL, NULL);
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  }
+  mpi_is_initialized = true;
+}
+
+
 
 XfeedManager* GetXfeedManager(int device_ordinal) {
   static auto* managers = new absl::flat_hash_map<int, XfeedManager*>();
@@ -299,6 +316,7 @@ class CpuAllToAllRendezvous
       }
 
       for (const AllToAllParticipantData& sender : participants_) {
+
         VLOG(3) << "Processing AllToAll participant: " << sender.ToString();
 
         int rank = FindOrDie(device_ranks, sender.device_id);
@@ -476,6 +494,10 @@ class CpuAllReduceRendezvous
               reduction_kind, out,
               input_buffers[participant_idx][buffer_idx][idx]);
         }
+        mpi_init();
+        VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
+        //MPI_Allreduce(MPI_IN_PLACE, (void*) out.data() , out.size(), MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         for (int participant_idx = 0; participant_idx < participants_.size();
              participant_idx++) {
           output_buffers[participant_idx][buffer_idx][idx] = out;
