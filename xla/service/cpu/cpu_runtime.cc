@@ -486,21 +486,23 @@ class CpuAllReduceRendezvous
     for (int buffer_idx = 0; buffer_idx < buffers_per_participant;
          buffer_idx++) {
       int element_count = first_participant.buffers[buffer_idx].element_count;
+      // TODO can we re-use one of the buffers for out?
+      std::vector<T> out;
+      out.reserve(element_count);
       for (int idx = 0; idx < element_count; idx++) {
-        T out = GetInitialValue<T>(reduction_kind);
-        for (int participant_idx = 0; participant_idx < participants_.size();
-             participant_idx++) {
-          out = PerformReductionStep<T>(
-              reduction_kind, out,
-              input_buffers[participant_idx][buffer_idx][idx]);
+        out[idx] = GetInitialValue<T>(reduction_kind);
+        for (int participant_idx = 0; participant_idx < participants_.size(); participant_idx++) {
+          out[idx] = PerformReductionStep<T>(reduction_kind, out[idx], input_buffers[participant_idx][buffer_idx][idx]);
         }
-        mpi_init();
-        VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
-        //MPI_Allreduce(MPI_IN_PLACE, (void*) out.data() , out.size(), MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        for (int participant_idx = 0; participant_idx < participants_.size();
-             participant_idx++) {
-          output_buffers[participant_idx][buffer_idx][idx] = out;
+      }
+      mpi_init();
+      VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
+      VLOG(0) << "DEBUG_MPI element_count "  << element_count;
+      MPI_Allreduce(MPI_IN_PLACE, out.data(), element_count, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+      //MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+      for (int idx = 0; idx < element_count; idx++) {
+        for (int participant_idx = 0; participant_idx < participants_.size(); participant_idx++) {
+          output_buffers[participant_idx][buffer_idx][idx] = out[idx];
         }
       }
     }

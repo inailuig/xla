@@ -13,7 +13,7 @@ def s(x):
     return x.sum(axis=0)
 
 
-x = jnp.ones((32, 5,3), dtype=jnp.float32)
+x = jnp.ones((16, 5,3), dtype=jnp.float32)
 x = test(x)
 print(s(x))
 
