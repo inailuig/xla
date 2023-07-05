@@ -49,6 +49,7 @@ limitations under the License.
 #include "tsl/platform/logging.h"
 #include "tsl/platform/status.h"
 #include "tsl/profiler/lib/traceme.h"
+#include "third_party/mpi/mpi.h"
 
 namespace xla {
 namespace cpu {
@@ -311,6 +312,101 @@ class CpuAllToAllRendezvous
   }
 };
 
+template <PrimitiveType>
+constexpr MPI_Datatype GetMPI_Datatype(){
+  LOG(FATAL) << "Unexpected datatype;";
+  return MPI_DATATYPE_NULL;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S8>(){
+  return MPI_INT8_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U8>(){
+  return MPI_UINT8_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<PRED>(){
+  return MPI_UINT8_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S16>(){
+  return MPI_INT16_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U16>(){
+  return MPI_UINT16_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S32>(){
+  return MPI_INT32_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U32>(){
+  return MPI_UINT32_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S64>(){
+  return MPI_INT64_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U64>(){
+  return MPI_UINT64_T;
+}
+
+//
+// template<>
+// constexpr MPI_Datatype GetMPI_Datatype<F16>(){
+//   // todo implement float16
+//   // see e.g. https://stackoverflow.com/questions/29638251/16-bit-float-mpi-reduce
+// }
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<F32>(){
+  return MPI_FLOAT;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<F64>(){
+  return MPI_DOUBLE;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<C64>(){
+  return MPI_C_COMPLEX;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<C128>(){
+  return MPI_C_DOUBLE_COMPLEX;
+}
+
+MPI_Op GetMPI_Op(ReductionKind reduction_kind) {
+  switch (reduction_kind) {
+    case ReductionKind::SUM:
+      return MPI_SUM;
+    case ReductionKind::PRODUCT:
+      return MPI_PROD;
+    case ReductionKind::MIN:
+      // TODO implement custom complex max/min reduction
+      return MPI_MIN;
+    case ReductionKind::MAX:
+      return MPI_MAX;
+  }
+}
+
 class CpuCollectivePermuteRendezvous
     : public Rendezvous<CollectivePermuteParticipantData, std::nullptr_t> {
  public:
@@ -462,17 +558,29 @@ class CpuAllReduceRendezvous
     for (int buffer_idx = 0; buffer_idx < buffers_per_participant;
          buffer_idx++) {
       int element_count = first_participant.buffers[buffer_idx].element_count;
+      // we use the output buffer of participant 0 for storing input/output of mpi
+      // output_buffers[0][buffer_idx] is a absl::span<T>
+      T* out = output_buffers[0][buffer_idx].data();
       for (int idx = 0; idx < element_count; idx++) {
-        T out = GetInitialValue<T>(reduction_kind);
+        out[idx] = GetInitialValue<T>(reduction_kind);
         for (int participant_idx = 0; participant_idx < participants_.size();
              participant_idx++) {
-          out = PerformReductionStep<T>(
-              reduction_kind, out,
+          out[idx] = PerformReductionStep<T>(
+              reduction_kind, out[idx],
               input_buffers[participant_idx][buffer_idx][idx]);
         }
+      }
+      // char mytypename[MPI_MAX_OBJECT_NAME];
+      // int mytypenamelen;
+      // MPI_Type_get_name(GetMPI_Datatype<PT>(), mytypename, &mytypenamelen);
+      // VLOG(1) << "MPI_Allreduce element_count="  << element_count << " type=" << typeid(T).name() << " " << mytypename << " ";
+      VLOG(1) << "MPI_Allreduce element_count="  << element_count;
+      MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, GetMPI_Datatype<PT>(), GetMPI_Op(reduction_kind), MPI_COMM_WORLD);
+
+      for (int idx = 0; idx < element_count; idx++) {
         for (int participant_idx = 0; participant_idx < participants_.size();
              participant_idx++) {
-          output_buffers[participant_idx][buffer_idx][idx] = out;
+          output_buffers[participant_idx][buffer_idx][idx] = out[idx];
         }
       }
     }
@@ -565,6 +673,16 @@ GlobalAllToAllRendezvousMap() {
   return m;
 }
 
+size_t GetNumLocalParticipants(
+    const std::vector<GlobalDeviceId>& participants,
+    const std::vector<GlobalDeviceId>* local_devices) {
+  if (local_devices == nullptr) return participants.size();
+
+  return absl::c_count_if(participants, [&](const GlobalDeviceId& device_id) {
+    return absl::c_linear_search(*local_devices, device_id);
+  });
+}
+
 RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options,
                                std::vector<ReplicaGroup> group,
                                int32_t channel_id_present,
@@ -582,7 +700,16 @@ RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options,
                                                        use_global_device_ids)
                                   .value())
           .value();
-  int num_local_participants = participating_devices.size();
+
+  std::vector<GlobalDeviceId> local_devices;
+  if (run_options->cpu_global_device_ids) {
+    local_devices.reserve(run_options->cpu_global_device_ids->size());
+    for (const auto& entry : *run_options->cpu_global_device_ids) {
+      local_devices.push_back(entry.second);
+    }
+  }
+  size_t num_local_participants = GetNumLocalParticipants(participating_devices, run_options->cpu_global_device_ids ? &local_devices : nullptr);
+
   return RendezvousKey{run_options->run_id(), std::move(participating_devices),
                        num_local_participants, op_kind, op_id};
 }
@@ -774,9 +901,18 @@ ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
 void PartitionIdImpl(const ExecutableRunOptions* run_options,
                      void* output_buffer) {
   int device_ordinal = GetDeviceOrdinal(run_options);
+
+  GlobalDeviceId global_device_id;
+
+  if (run_options->cpu_global_device_ids == nullptr){
+    global_device_id = device_ordinal;
+  }
+  else{
+      global_device_id = run_options->cpu_global_device_ids->at(device_ordinal);
+  }
   const DeviceAssignment::LogicalID logical_id =
       run_options->device_assignment()
-          ->LogicalIdForDevice(GlobalDeviceId(device_ordinal))
+          ->LogicalIdForDevice(global_device_id)
           .value();
   std::memcpy(output_buffer, &logical_id.computation_id, 4);
 }

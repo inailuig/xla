@@ -897,6 +897,7 @@ cc_library(
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/platform:status",
         "@tsl//tsl/profiler/lib:traceme",
+        "//third_party/mpi",
     ],
 )
 

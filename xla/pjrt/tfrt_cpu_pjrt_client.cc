@@ -65,6 +65,7 @@ limitations under the License.
 #include "xla/pjrt/tracked_tfrt_cpu_device_buffer.h"
 #include "xla/pjrt/transpose.h"
 #include "xla/pjrt/utils.h"
+#include "xla/pjrt/distributed/topology_util.h"
 #include "xla/runtime/cpu_event.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/compiler.h"
@@ -236,7 +237,7 @@ class TfrtCpuAsyncHostToDeviceTransferManager
 
 }  // namespace
 
-TfrtCpuDeviceDescription::TfrtCpuDeviceDescription(int id) : id_(id) {
+TfrtCpuDeviceDescription::TfrtCpuDeviceDescription(int process_index, int id) : id_(id), process_index_(process_index) {
   debug_string_ = absl::StrCat("TFRT_CPU_", id);
   to_string_ = absl::StrCat("CpuDevice(id=", id, ")");
 }
@@ -253,8 +254,8 @@ absl::string_view TfrtCpuDeviceDescription::ToString() const {
   return to_string_;
 }
 
-TfrtCpuDevice::TfrtCpuDevice(int id, int max_inflight_computations)
-    : description_(id),
+TfrtCpuDevice::TfrtCpuDevice(int process_index, int id, int device_ordinal, int max_inflight_computations)
+    : description_(process_index, id), device_ordinal_(device_ordinal),
       max_inflight_computations_semaphore_(
           /*capacity=*/max_inflight_computations) {}
 
@@ -274,7 +275,7 @@ StatusOr<PjRtMemorySpace*> TfrtCpuDevice::default_memory_space() const {
   return Unimplemented("default_memory_space is not supported");
 }
 
-static int CpuDeviceCount() {
+int CpuDeviceCount() {
   // By default we fix the number of devices to one.  However we do let the user
   // override this behavior to help run tests on the host that run models in
   // parallel across multiple devices, e.g. pmap.
@@ -282,11 +283,11 @@ static int CpuDeviceCount() {
 }
 
 static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(
-    int cpu_device_count, int max_inflight_computations_per_device) {
+    int process_index, int cpu_device_count, int max_inflight_computations_per_device) {
   std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
   for (int i = 0; i < cpu_device_count; ++i) {
     auto device = std::make_unique<TfrtCpuDevice>(
-        /*id=*/i, max_inflight_computations_per_device);
+        process_index, -1, i, max_inflight_computations_per_device);
     devices.push_back(std::move(device));
   }
   return std::move(devices);
@@ -299,11 +300,15 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
 
   TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-                      GetTfrtCpuDevices(cpu_device_count,
+                      GetTfrtCpuDevices(0, cpu_device_count,
                                         max_inflight_computations_per_device));
 
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(
-      /*process_index=*/0, std::move(devices), num_threads));
+      /*process_index=*/0, std::move(devices), num_threads, std::nullopt));
+}
+
+const std::optional<std::map<int, GlobalDeviceId>>&TfrtCpuClient::cpu_global_device_ids() const {
+  return cpu_global_device_ids_;
 }
 
 StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous) {
@@ -312,7 +317,7 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous) {
 
 TfrtCpuClient::TfrtCpuClient(
     int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-    size_t num_threads)
+    size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids )
     : process_index_(process_index),
       owned_devices_(std::move(devices)),
       computation_placer_(std::make_unique<ComputationPlacer>()),
@@ -327,7 +332,8 @@ TfrtCpuClient::TfrtCpuClient(
                                       eigen_intraop_pool_->NumThreads())),
       last_collective_launch_event_(
           tsl::MakeAvailableAsyncValueRef<CpuEvent>()),
-      transpose_cache_(1024) {
+      transpose_cache_(1024),
+      cpu_global_device_ids_(std::move(cpu_global_device_ids)) {
   for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
     devices_.push_back(device.get());
     CHECK(id_to_device_.insert({device->id(), device.get()}).second)
@@ -767,6 +773,7 @@ StatusOr<std::unique_ptr<PjRtBuffer>> TfrtCpuClient::BufferFromHostBuffer(
     std::function<void()> on_done_with_host_buffer, PjRtDevice* device) {
   tsl::profiler::TraceMe traceme("TfrtCpuClient::BufferFromHostBuffer");
   Shape shape = ShapeUtil::MakeShape(type, dims);
+  // TODO error on non-local device
   VLOG(2) << "TfrtCpuClient::BufferFromHostBuffer: shape: " << shape.ToString()
           << " device: " << device->DebugString();
 
@@ -1191,6 +1198,7 @@ StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
   // Need to keep device_assignment alive until execution completes.
   run_options.set_device_assignment(device_assignment.get());
   run_options.set_intra_op_thread_pool(client_->eigen_intraop_device());
+  run_options.cpu_global_device_ids = client_->cpu_global_device_ids() ? &*client_->cpu_global_device_ids(): nullptr;
 
   // Schedule only one collective at a time.
   bool is_a_collective_launch = !!last_collective_launch_event;

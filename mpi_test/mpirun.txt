@@ -1,0 +1,1 @@
+mpirun --tag-output -n 2 --map-by socket:pe=2 -x XLA_FLAGS='--xla_force_host_platform_device_count=2' --bind-to core python3 test.py

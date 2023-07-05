@@ -68,7 +68,6 @@ def make_cpu_client() -> ...:
   )
   return _xla.get_tfrt_cpu_client(asynchronous=True)
 
-
 def make_gpu_client(
     distributed_client=None,
     node_id=0,

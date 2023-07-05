@@ -24,6 +24,8 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
 
+#include "xla/service/global_device_id.h"
+
 // These classes are forward declared so that ExecutableRunOptions can be linked
 // into an XLA-compiled binary without having to link all of the pointed-to
 // objects (e.g., for an ahead-of-time compiled CPU binary, the gpu tools don't
@@ -215,6 +217,8 @@ class ExecutableRunOptions {
   ExecutableRunOptions& set_gpu_executable_run_options(
       const gpu::GpuExecutableRunOptions* gpu_executable_run_options);
   const gpu::GpuExecutableRunOptions* gpu_executable_run_options() const;
+
+  const std::map<int, GlobalDeviceId>* cpu_global_device_ids = nullptr;  // may be null
 
  private:
   stream_executor::DeviceMemoryAllocator* allocator_ = nullptr;

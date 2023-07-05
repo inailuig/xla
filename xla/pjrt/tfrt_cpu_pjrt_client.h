@@ -58,16 +58,17 @@ limitations under the License.
 #include "tsl/platform/errors.h"
 #include "tsl/platform/fingerprint.h"
 #include "tsl/platform/threadpool.h"
+#include "xla/statusor.h"
 
 namespace xla {
 
 class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
  public:
-  explicit TfrtCpuDeviceDescription(int id);
+  explicit TfrtCpuDeviceDescription(int process_index_, int id);
 
   int id() const override { return id_; }
 
-  int process_index() const override { return 0; }
+  int process_index() const override { return process_index_; }
 
   absl::string_view device_kind() const override;
 
@@ -81,6 +82,7 @@ class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
   }
 
  private:
+  int process_index_;
   int id_;
   std::string debug_string_;
   std::string to_string_;
@@ -89,7 +91,7 @@ class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
 
 class TfrtCpuDevice final : public PjRtDevice {
  public:
-  explicit TfrtCpuDevice(int id, int max_inflight_computations = 32);
+  explicit TfrtCpuDevice(int process_index, int id, int device_ordinal,  int max_inflight_computations = 32);
 
   const TfrtCpuDeviceDescription& description() const override {
     return description_;
@@ -107,7 +109,7 @@ class TfrtCpuDevice final : public PjRtDevice {
   }
 
   // Used as `device_ordinal`.
-  int local_hardware_id() const override { return id(); }
+  int local_hardware_id() const override { return device_ordinal_; }
 
   Status TransferToInfeed(const LiteralSlice& literal) override;
 
@@ -130,6 +132,7 @@ class TfrtCpuDevice final : public PjRtDevice {
  private:
   PjRtClient* client_ = nullptr;
   TfrtCpuDeviceDescription description_;
+  const int device_ordinal_;
 
   // TODO(zhangqiaorjc): Optimize semaphore related overhead.
   // Semaphore used to limit how many programs can be enqueued by the host
@@ -141,7 +144,8 @@ class TfrtCpuClient final : public PjRtClient {
  public:
   TfrtCpuClient(int process_index,
                 std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-                size_t num_threads);
+                size_t num_threads,
+                std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   ~TfrtCpuClient() override;
 
   int process_index() const override { return process_index_; }
@@ -280,6 +284,7 @@ class TfrtCpuClient final : public PjRtClient {
     last_collective_launch_event_ = std::move(event);
   }
 
+  const std::optional<std::map<int, GlobalDeviceId>>& cpu_global_device_ids() const;
  private:
   int process_index_;
   // Includes all devices, including non-addressable devices.
@@ -319,6 +324,7 @@ class TfrtCpuClient final : public PjRtClient {
   // major-to-minor layout.
   absl::Mutex transpose_mu_;
   TransposePlanCache transpose_cache_ ABSL_GUARDED_BY(transpose_mu_);
+  std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids_;
 };
 
 class TfrtCpuBuffer final : public AbstractTfrtCpuBuffer {
@@ -507,6 +513,9 @@ class TfrtCpuExecutable final : public PjRtLoadedExecutable {
   // critical path.
   bool cheap_computation_;
 };
+
+
+int CpuDeviceCount();
 
 // Creates a CPU client with one Device. For testing purposes, you can set the
 // number of devices passing the --xla_force_host_platform_device_count flag to

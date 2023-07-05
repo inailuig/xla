@@ -668,6 +668,7 @@ cc_library(
         "//xla/service/cpu:cpu_compiler",
         "//xla/service/cpu:cpu_executable",
         "//xla/service/cpu:cpu_xfeed",
+        "//xla/pjrt/distributed:topology_util",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -695,6 +696,7 @@ cc_library(
         "@tsl//tsl/profiler/lib:connected_traceme",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
         "@tsl//tsl/profiler/lib:traceme",
+        "//third_party/mpi",
     ],
 )
 
