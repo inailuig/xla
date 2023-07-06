@@ -486,9 +486,9 @@ class CpuAllReduceRendezvous
     for (int buffer_idx = 0; buffer_idx < buffers_per_participant;
          buffer_idx++) {
       int element_count = first_participant.buffers[buffer_idx].element_count;
-      // TODO can we re-use one of the buffers for out?
-      std::vector<T> out;
-      out.reserve(element_count);
+      // we use the output buffer of participant 0
+      // output_buffers[0][buffer_idx] is a absl::span<T>
+      T* out = output_buffers[0][buffer_idx].data();
       for (int idx = 0; idx < element_count; idx++) {
         out[idx] = GetInitialValue<T>(reduction_kind);
         for (int participant_idx = 0; participant_idx < participants_.size(); participant_idx++) {
@@ -498,10 +498,10 @@ class CpuAllReduceRendezvous
       mpi_init();
       VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
       VLOG(0) << "DEBUG_MPI element_count "  << element_count;
-      MPI_Allreduce(MPI_IN_PLACE, out.data(), element_count, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+      MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
       //MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
       for (int idx = 0; idx < element_count; idx++) {
-        for (int participant_idx = 0; participant_idx < participants_.size(); participant_idx++) {
+        for (int participant_idx = 1; participant_idx < participants_.size(); participant_idx++) {
           output_buffers[participant_idx][buffer_idx][idx] = out[idx];
         }
       }
