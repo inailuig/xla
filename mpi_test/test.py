@@ -2,6 +2,8 @@ import jax
 from functools import partial
 import jax.numpy as jnp
 
+jax.distributed.initialize()
+
 print(jax.devices())
 
 @partial(jax.jit, out_shardings=jax.sharding.PositionalSharding(jax.devices()).reshape(-1,1,1))

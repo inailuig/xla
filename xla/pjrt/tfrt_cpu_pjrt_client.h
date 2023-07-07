@@ -59,6 +59,12 @@ limitations under the License.
 #include "tsl/platform/threadpool.h"
 #include "tfrt/host_context/async_value_ref.h"  // from @tf_runtime
 
+//#include "xla/pjrt/distributed/client.h"
+#include "xla/pjrt/pjrt_stream_executor_client.h"
+#include "xla/statusor.h"
+
+
+
 namespace xla {
 
 class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
@@ -495,6 +501,11 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous);
 StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
     bool asynchronous, int cpu_device_count,
     int max_inflight_computations_per_device = 32);
+
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient2(
+    bool asynchronous,
+// int cpu_device_count, int max_inflight_computations_per_device,
+ int node_id, int num_nodes = 1, PjRtClient::KeyValueGetCallback kv_get = nullptr, PjRtClient::KeyValuePutCallback kv_put = nullptr);
 
 }  // namespace xla
 

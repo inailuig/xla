@@ -398,6 +398,34 @@ PYBIND11_MODULE(xla_extension, m) {
             ifrt::PjRtClient::Create(std::move(client)));
       },
       py::arg("asynchronous") = true);
+  m.def(
+      "get_tfrt_cpu_client2",
+      [](std::shared_ptr<DistributedRuntimeClient> distributed_client, int node_id, int num_nodes, bool asynchronous) -> std::shared_ptr<PyClient> {
+        py::gil_scoped_release gil_release;
+
+
+        PjRtClient::KeyValueGetCallback kv_get = nullptr;
+        PjRtClient::KeyValuePutCallback kv_put = nullptr;
+        if (distributed_client != nullptr) {
+          // Use the plugin name as key prefix.
+          std::string key_prefix = "cpu:";
+          kv_get = [distributed_client, key_prefix](const std::string& k, absl::Duration timeout) -> xla::StatusOr<std::string> {
+            return distributed_client->BlockingKeyValueGet(absl::StrCat(key_prefix, k), timeout);
+          };
+          kv_put = [distributed_client, key_prefix](const std::string& k, const std::string& v) -> xla::Status {
+            return distributed_client->KeyValueSet(absl::StrCat(key_prefix, k), v);
+          };
+        }
+        // TODO
+        std::unique_ptr<PjRtClient> client = xla::ValueOrThrow(GetTfrtCpuClient2(asynchronous, node_id, num_nodes, kv_get, kv_put));
+
+        return std::make_shared<PyClient>( ifrt::PjRtClient::Create(std::move(client)));
+
+      },
+      py::arg("distributed_client") = nullptr,
+      py::arg("node_id") = 0,
+      py::arg("num_nodes") = 1,
+      py::arg("asynchronous") = true);
   m.def("get_interpreter_client", []() -> std::shared_ptr<PyClient> {
     py::gil_scoped_release gil_release;
     std::unique_ptr<PjRtClient> client =

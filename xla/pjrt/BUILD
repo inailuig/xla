@@ -586,6 +586,12 @@ cc_library(
         "//xla/service/cpu:cpu_compiler",
         "//xla/service/cpu:cpu_executable",
         "//xla/service/cpu:cpu_xfeed",
+
+# added
+        "//xla/pjrt:pjrt_stream_executor_client",
+        "//xla/pjrt/distributed:topology_util",
+
+
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/container:flat_hash_map",

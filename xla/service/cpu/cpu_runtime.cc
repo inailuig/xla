@@ -486,7 +486,7 @@ class CpuAllReduceRendezvous
     for (int buffer_idx = 0; buffer_idx < buffers_per_participant;
          buffer_idx++) {
       int element_count = first_participant.buffers[buffer_idx].element_count;
-      // we use the output buffer of participant 0
+      // we use the output buffer of participant 0 for storing input/output of mpi
       // output_buffers[0][buffer_idx] is a absl::span<T>
       T* out = output_buffers[0][buffer_idx].data();
       for (int idx = 0; idx < element_count; idx++) {
