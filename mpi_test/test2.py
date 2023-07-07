@@ -4,4 +4,8 @@ import jax.numpy as jnp
 
 jax.distributed.initialize()
 
-print(jax.devices())
+print('localdev', jax.local_devices())
+print('dev', jax.devices())
+
+
+jax.distributed.shutdown()

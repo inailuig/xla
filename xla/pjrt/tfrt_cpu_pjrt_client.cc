@@ -367,7 +367,7 @@ class TfrtCpuAsyncHostToDeviceTransferManager
 
 }  // namespace
 
-TfrtCpuDeviceDescription::TfrtCpuDeviceDescription(int id) : id_(id) {
+TfrtCpuDeviceDescription::TfrtCpuDeviceDescription(int process_index, int id) : id_(id), process_index_(process_index) {
   debug_string_ = absl::StrCat("TFRT_CPU_", id);
   to_string_ = absl::StrCat("CpuDevice(id=", id, ")");
 }
@@ -384,8 +384,8 @@ absl::string_view TfrtCpuDeviceDescription::ToString() const {
   return to_string_;
 }
 
-TfrtCpuDevice::TfrtCpuDevice(int id, int max_inflight_computations)
-    : description_(id),
+TfrtCpuDevice::TfrtCpuDevice(int process_index, int id, int device_ordinal, int max_inflight_computations)
+    : description_(process_index, id), device_ordinal_(device_ordinal),
       max_inflight_computations_semaphore_(
           /*capacity=*/max_inflight_computations) {}
 
@@ -404,26 +404,21 @@ static int CpuDeviceCount() {
   return GetDebugOptionsFromFlags().xla_force_host_platform_device_count();
 }
 
-static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(
-    int cpu_device_count, int max_inflight_computations_per_device) {
+static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(int process_index, int cpu_device_count, int max_inflight_computations_per_device) {
   std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
   for (int i = 0; i < cpu_device_count; ++i) {
     auto device = std::make_unique<TfrtCpuDevice>(
-        /*id=*/i, max_inflight_computations_per_device);
+        process_index, -1, i, max_inflight_computations_per_device);
     devices.push_back(std::move(device));
   }
   return std::move(devices);
 }
 
-StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
-    bool asynchronous, int cpu_device_count,
-    int max_inflight_computations_per_device) {
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous, int cpu_device_count,int max_inflight_computations_per_device) {
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
 
-  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-                      GetTfrtCpuDevices(cpu_device_count,
-                                        max_inflight_computations_per_device));
+  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices, GetTfrtCpuDevices(0, cpu_device_count, max_inflight_computations_per_device));
 
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(
       /*process_index=*/0, std::move(devices), num_threads));
@@ -527,14 +522,15 @@ Status BuildDistributedDevices(
   }
   local_topology.set_boot_id(boot_id_str);
 
-  //for (int id=0; id< local_devices.size(); ++id) { //TODO properly
+  for (int id=0; id< local_devices.size(); ++id) { //TODO properly
+      VLOG(1) << "id " << id;
   //  TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::se::DeviceDescription> desc, id));
- //   DeviceProto* device_proto = local_topology.add_devices();
-  //  device_proto->set_local_device_ordinal(id);
+      DeviceProto* device_proto = local_topology.add_devices();
+      device_proto->set_local_device_ordinal(id);
   //  device_proto->set_name(desc->name());
   //  device_proto->set_vendor(desc->device_vendor());
- // }
-  VLOG(3) << "CPU Local Topology:\n" << local_topology.DebugString();
+  }
+  VLOG(1) << "CPU Local Topology:\n" << local_topology.DebugString();
   TF_RETURN_IF_ERROR(kv_put(GetLocalTopologyKey(node_id), local_topology.SerializeAsString()));
 
   GlobalTopologyProto global_topology;
@@ -548,7 +544,7 @@ Status BuildDistributedDevices(
     TF_ASSIGN_OR_RETURN(std::string global_topology_str, kv_get(GetGlobalTopologyKey(), get_global_topology_timeout));
     global_topology.ParseFromString(global_topology_str);
   }
-  VLOG(3) << "CPU Global Topology:\n" << global_topology.DebugString();
+  VLOG(1) << "CPU Global Topology:\n" << global_topology.DebugString();
 
   std::map<int, GlobalDeviceId> cpu_device_ids;
   absl::flat_hash_map<GlobalDeviceId, int> device_to_node;
@@ -564,7 +560,12 @@ Status BuildDistributedDevices(
         //TF_RET_CHECK(it-> != nullptr);
         //local_device = std::move(it);
         cpu_device_ids[device_proto.local_device_ordinal()] = global_device_id;
-        devices->push_back(std::move(local_devices[device_proto.local_device_ordinal()]));
+       // TODO dont recreate device here
+       devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),device_proto.local_device_ordinal() , 0));
+       //devices->push_back(std::move(local_devices[device_proto.local_device_ordinal()]));
+      }
+      else{
+      devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),-1,  0));
       }
 //      auto device = std::make_unique<TfrtCpuDevice>(
 //          device_proto.global_device_id(), std::move(local_device),
@@ -588,17 +589,17 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient2(bool asynchronous, int n
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
 
-  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> local_devices,  GetTfrtCpuDevices(cpu_device_count, max_inflight_computations_per_device));
+  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> local_devices,  GetTfrtCpuDevices(node_id, cpu_device_count, max_inflight_computations_per_device));
 
   if (num_nodes > 1) {
     TF_RET_CHECK(kv_get != nullptr);
     TF_RET_CHECK(kv_put != nullptr);
     std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
     TF_RETURN_IF_ERROR(BuildDistributedDevices(std::move(local_devices), node_id, num_nodes, &devices, kv_get, kv_put));
-    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>( /*process_index=*/0, std::move(devices), num_threads));
+    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(node_id, std::move(devices), num_threads));
 
   } else {
-    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>( /*process_index=*/0, std::move(local_devices), num_threads));
+    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(node_id, std::move(local_devices), num_threads));
   }
 }
 
@@ -609,28 +610,25 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous) {
   return GetTfrtCpuClient(asynchronous, CpuDeviceCount());
 }
 
-TfrtCpuClient::TfrtCpuClient(
-    int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-    size_t num_threads)
+TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads)
     : process_index_(process_index),
       owned_devices_(std::move(devices)),
       computation_placer_(std::make_unique<ComputationPlacer>()),
-      pjrt_client_thread_pool_(new tsl::thread::ThreadPool(
-          tsl::Env::Default(), "XLATfrtCpuClient", num_threads)),
-      async_work_runner_(std::make_unique<ThreadPoolAsyncWorkRunner>(
-          pjrt_client_thread_pool_.get())),
-      eigen_intraop_pool_(new tsl::thread::ThreadPool(
-          tsl::Env::Default(), "XLAEigen", DefaultThreadPoolSize())),
-      eigen_intraop_device_(
-          new Eigen::ThreadPoolDevice(eigen_intraop_pool_->AsEigenThreadPool(),
-                                      eigen_intraop_pool_->NumThreads())),
-      last_collective_launch_event_(
-          tfrt::MakeAvailableAsyncValueRef<CpuEvent>()),
-      transpose_cache_(1024) {
+      pjrt_client_thread_pool_(new tsl::thread::ThreadPool( tsl::Env::Default(), "XLATfrtCpuClient", num_threads)),
+      async_work_runner_(std::make_unique<ThreadPoolAsyncWorkRunner>(pjrt_client_thread_pool_.get())),
+      eigen_intraop_pool_(new tsl::thread::ThreadPool( tsl::Env::Default(), "XLAEigen", DefaultThreadPoolSize())),
+      eigen_intraop_device_(new Eigen::ThreadPoolDevice(eigen_intraop_pool_->AsEigenThreadPool(), eigen_intraop_pool_->NumThreads())),
+      last_collective_launch_event_(tfrt::MakeAvailableAsyncValueRef<CpuEvent>()),
+      transpose_cache_(1024)
+  {
+
+  for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
+    VLOG(1) << "addressable?" << device->process_index() << " vs " <<this->process_index() << " lhid: " << device->local_hardware_id();
+  }
+
   for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
     devices_.push_back(device.get());
-    CHECK(id_to_device_.insert({device->id(), device.get()}).second)
-        << "Duplicate device id: " << device->id();
+    CHECK(id_to_device_.insert({device->id(), device.get()}).second) << "Duplicate device id: " << device->id();
 
     device->SetClient(this);
     if (device->IsAddressable()) {

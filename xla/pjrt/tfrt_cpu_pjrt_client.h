@@ -69,11 +69,11 @@ namespace xla {
 
 class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
  public:
-  explicit TfrtCpuDeviceDescription(int id);
+  explicit TfrtCpuDeviceDescription(int process_index_, int id);
 
   int id() const override { return id_; }
 
-  int process_index() const override { return 0; }
+  int process_index() const override { return process_index_; }
 
   absl::string_view device_kind() const override;
 
@@ -87,6 +87,7 @@ class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
   }
 
  private:
+  int process_index_;
   int id_;
   std::string debug_string_;
   std::string to_string_;
@@ -95,7 +96,7 @@ class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
 
 class TfrtCpuDevice final : public PjRtDevice {
  public:
-  explicit TfrtCpuDevice(int id, int max_inflight_computations = 32);
+  explicit TfrtCpuDevice(int process_index, int id, int device_ordinal,  int max_inflight_computations = 32);
 
   const TfrtCpuDeviceDescription& description() const override {
     return description_;
@@ -113,8 +114,8 @@ class TfrtCpuDevice final : public PjRtDevice {
   }
 
   // Used as `device_ordinal`.
-  int local_hardware_id() const override { return id(); }
-
+  //int local_hardware_id() const override { return id(); }
+  int local_hardware_id() const override { return device_ordinal_; }
   Status TransferToInfeed(const LiteralSlice& literal) override;
 
   Status TransferFromOutfeed(MutableBorrowingLiteral literal) override;
@@ -132,6 +133,7 @@ class TfrtCpuDevice final : public PjRtDevice {
  private:
   PjRtClient* client_ = nullptr;
   TfrtCpuDeviceDescription description_;
+  const int device_ordinal_;  // -1 means not local.
 
   // TODO(zhangqiaorjc): Optimize semaphore related overhead.
   // Semaphore used to limit how many programs can be enqueued by the host
