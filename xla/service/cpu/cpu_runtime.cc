@@ -540,6 +540,8 @@ class CpuAllReduceRendezvous
     return nullptr;
   }
 
+
+
  private:
   template <PrimitiveType PT>
   void DoAllReduce(AllReduceParticipantData participant) {
@@ -600,8 +602,18 @@ class CpuAllReduceRendezvous
       // VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
       // TODO somehow detect if the devices are only local and dont to mpi
       // TODO allow arbitrary topology (only some mpi ranks etc)
-      VLOG(1) << "DEBUG_MPI element_count "  << element_count;
+      char mytypename[MPI_MAX_OBJECT_NAME];
+      int mytypenamelen;
+      MPI_Type_get_name(GetMPI_Datatype<PT>(), mytypename, &mytypenamelen);
+      VLOG(1) << "DEBUG MPI_Allreduce element_count "  << element_count << " type " << typeid(T).name() << " " << mytypename << " " << GetMPI_Op(reduction_kind) << "(sum="<< MPI_SUM;
+
+      T val0 = out[0];
+      std::stringstream ss;
       MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, GetMPI_Datatype<PT>(), GetMPI_Op(reduction_kind), MPI_COMM_WORLD);
+      T val1 = out[0];
+      ss << val0 << " " << val1;
+
+      VLOG(1) << "DEBUG MPI_Allreduce values " <<ss.str() ;
       //MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
       for (int idx = 0; idx < element_count; idx++) {
         for (int participant_idx = 1; participant_idx < participants_.size(); participant_idx++) {
