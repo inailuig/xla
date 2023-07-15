@@ -355,6 +355,11 @@ constexpr MPI_Datatype GetMPI_Datatype<U8>(){
 }
 
 template<>
+constexpr MPI_Datatype GetMPI_Datatype<PRED>(){
+  return MPI_UINT8_T;
+}
+
+template<>
 constexpr MPI_Datatype GetMPI_Datatype<S16>(){
   return MPI_INT16_T;
 }
@@ -904,6 +909,7 @@ void ReplicaIdImpl(const ExecutableRunOptions* run_options,
   int32_t replica_id = run_options->device_assignment()
                            ->ReplicaIdForDevice(GlobalDeviceId(device_ordinal))
                            .value();
+ VLOG(1) << "ReplicaIdImpl " << device_ordinal << " " << replica_id;
   std::memcpy(output_buffer, &replica_id, 4);
 }
 
@@ -911,10 +917,17 @@ ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
 void PartitionIdImpl(const ExecutableRunOptions* run_options,
                      void* output_buffer) {
   int device_ordinal = GetDeviceOrdinal(run_options);
-  const DeviceAssignment::LogicalID logical_id =
-      run_options->device_assignment()
-          ->LogicalIdForDevice(GlobalDeviceId(device_ordinal))
-          .value();
+
+  GlobalDeviceId global_device_id;
+
+  if (run_options->cpu_global_device_ids == nullptr){
+    global_device_id = device_ordinal;
+  }
+  else{
+      global_device_id = run_options->cpu_global_device_ids->at(device_ordinal);
+  }
+  const DeviceAssignment::LogicalID logical_id = run_options->device_assignment()->LogicalIdForDevice(global_device_id).value();
+  VLOG(1) << "PartitionIdImpl do=" << device_ordinal << " lid=" << logical_id.computation_id << " gid=" << GlobalDeviceId(device_ordinal) << " gid_new=" << global_device_id ;
   std::memcpy(output_buffer, &logical_id.computation_id, 4);
 }
 

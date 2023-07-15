@@ -594,6 +594,7 @@ Status BuildDistributedDevices(
 
 
 StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient2(bool asynchronous, int node_id, int num_nodes, PjRtClient::KeyValueGetCallback kv_get, PjRtClient::KeyValuePutCallback kv_put) {
+  VLOG(1) << "GetTfrtCpuClient2  node_id=" << node_id << " num_nodes=" << num_nodes;
   int cpu_device_count = CpuDeviceCount(); // TOOD
   int max_inflight_computations_per_device = 32; // TODO
   // Need at least CpuDeviceCount threads to launch one collective.
