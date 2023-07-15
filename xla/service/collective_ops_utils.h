@@ -285,6 +285,7 @@ struct AllReduceParticipantData : ParticipantData {
 
   // For each local all-reduce participant a (global ID, local device ordinal)
   // pair for the participant. Participants are in no particular order.
+  // TODO this is unused
   std::vector<std::pair<GlobalDeviceId, int64_t>> local_devices;
 
   std::string ToString() const override {

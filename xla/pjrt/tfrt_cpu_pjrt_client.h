@@ -63,6 +63,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_stream_executor_client.h"
 #include "xla/statusor.h"
 
+#include "third_party/mpi/mpi.h"
 
 
 namespace xla {
@@ -122,6 +123,7 @@ class TfrtCpuDevice final : public PjRtDevice {
 
   // Returns a semaphore for admission control on inflight computations.
   Semaphore& max_inflight_computations_semaphore() {
+    VLOG(1) << "max_inflight_computations_semaphore()";
     return max_inflight_computations_semaphore_;
   }
 
@@ -141,9 +143,16 @@ class TfrtCpuDevice final : public PjRtDevice {
   Semaphore max_inflight_computations_semaphore_;
 };
 
+
+
+
+
+
+
+
 class TfrtCpuClient final : public PjRtClient {
  public:
-  TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads);
+  TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   ~TfrtCpuClient() override;
 
   int process_index() const override { return process_index_; }
@@ -269,6 +278,11 @@ class TfrtCpuClient final : public PjRtClient {
     last_collective_launch_event_ = std::move(event);
   }
 
+  // cpu::CpuExecutableRunOptions* cpu_run_options() const {
+  //   return cpu_run_options_.get();
+  // }
+  //TfrtCpuClient& set_cpu_global_device_ids(std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
+  const std::optional<std::map<int, GlobalDeviceId>>& cpu_global_device_ids() const;
  private:
   int process_index_;
   // Includes all devices, including non-addressable devices.
@@ -308,7 +322,9 @@ class TfrtCpuClient final : public PjRtClient {
   // major-to-minor layout.
   absl::Mutex transpose_mu_;
   TransposePlanCache transpose_cache_ ABSL_GUARDED_BY(transpose_mu_);
+  std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids_;
 };
+
 
 class TfrtCpuBuffer final : public AbstractTfrtCpuBuffer {
  public:

@@ -551,6 +551,7 @@ cc_library(
         "//xla:friends",
     ],
     deps = [
+        "//third_party/mpi",
         ":abstract_tfrt_cpu_buffer",
         ":compile_options_proto_cc",
         ":mlir_to_hlo",

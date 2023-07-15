@@ -56,19 +56,19 @@ limitations under the License.
 namespace xla {
 namespace cpu {
 namespace runtime {
-
-int mpi_rank, mpi_size;
-bool mpi_is_initialized = false;
-
-void mpi_init(){
-  if(!mpi_is_initialized){
-    MPI_Init(NULL, NULL);
-    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-  }
-  mpi_is_initialized = true;
-}
-
+//
+// int mpi_rank, mpi_size;
+// bool mpi_is_initialized = false;
+//
+// void mpi_init(){
+//   if(!mpi_is_initialized){
+//     MPI_Init(NULL, NULL);
+//     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+//     MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+//   }
+//   mpi_is_initialized = true;
+// }
+//
 
 
 XfeedManager* GetXfeedManager(int device_ordinal) {
@@ -335,6 +335,104 @@ class CpuAllToAllRendezvous
   }
 };
 
+
+
+
+template <PrimitiveType>
+constexpr MPI_Datatype GetMPI_Datatype(){
+  LOG(FATAL) << "Unexpected datatype;";
+  return MPI_DATATYPE_NULL;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S8>(){
+  return MPI_INT8_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U8>(){
+  return MPI_UINT8_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S16>(){
+  return MPI_INT16_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U16>(){
+  return MPI_UINT16_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S32>(){
+  return MPI_INT32_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U32>(){
+  return MPI_UINT32_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<S64>(){
+  return MPI_INT64_T;
+}
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<U64>(){
+  return MPI_UINT64_T;
+}
+
+//
+// template<>
+// constexpr MPI_Datatype GetMPI_Datatype<F16>(){
+//   // todo implement float16
+//   // see e.g. https://stackoverflow.com/questions/29638251/16-bit-float-mpi-reduce
+// }
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<F32>(){
+  return MPI_FLOAT;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<F64>(){
+  return MPI_DOUBLE;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<C64>(){
+  return MPI_C_COMPLEX;
+}
+
+
+template<>
+constexpr MPI_Datatype GetMPI_Datatype<C128>(){
+  return MPI_C_DOUBLE_COMPLEX;
+}
+
+
+
+
+MPI_Op GetMPI_Op(ReductionKind reduction_kind) {
+  switch (reduction_kind) {
+    case ReductionKind::SUM:
+      return MPI_SUM;
+    case ReductionKind::PRODUCT:
+      return MPI_PROD;
+    case ReductionKind::MIN:
+      // TODO implement custom complex max/min reduction
+      return MPI_MIN;
+    case ReductionKind::MAX:
+      return MPI_MAX;
+  }
+}
+
+
+
 class CpuCollectivePermuteRendezvous
     : public Rendezvous<CollectivePermuteParticipantData, std::nullptr_t> {
  public:
@@ -462,10 +560,8 @@ class CpuAllReduceRendezvous
 
       input_buffers.emplace_back();
       output_buffers.emplace_back();
-      std::vector<absl::Span<T>>& participant_input_buffers =
-          input_buffers.back();
-      std::vector<absl::Span<T>>& participant_output_buffers =
-          output_buffers.back();
+      std::vector<absl::Span<T>>& participant_input_buffers = input_buffers.back();
+      std::vector<absl::Span<T>>& participant_output_buffers = output_buffers.back();
       participant_input_buffers.reserve(p.buffers.size());
       participant_output_buffers.reserve(p.buffers.size());
 
@@ -495,10 +591,12 @@ class CpuAllReduceRendezvous
           out[idx] = PerformReductionStep<T>(reduction_kind, out[idx], input_buffers[participant_idx][buffer_idx][idx]);
         }
       }
-      mpi_init();
-      VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
-      VLOG(0) << "DEBUG_MPI element_count "  << element_count;
-      MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+      // mpi_init();
+      // VLOG(0) << "DEBUG_MPI rank size " << mpi_rank << " " << mpi_size;
+      // TODO somehow detect if the devices are only local and dont to mpi
+      // TODO allow arbitrary topology (only some mpi ranks etc)
+      VLOG(1) << "DEBUG_MPI element_count "  << element_count;
+      MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, GetMPI_Datatype<PT>(), GetMPI_Op(reduction_kind), MPI_COMM_WORLD);
       //MPI_Allreduce(MPI_IN_PLACE, (void*) &out, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
       for (int idx = 0; idx < element_count; idx++) {
         for (int participant_idx = 1; participant_idx < participants_.size(); participant_idx++) {
@@ -595,26 +693,39 @@ GlobalAllToAllRendezvousMap() {
   return m;
 }
 
-RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options,
-                               std::vector<ReplicaGroup> group,
-                               int32_t channel_id_present,
-                               std::optional<bool> use_global_device_ids,
-                               int64_t op_id) {
+
+
+size_t GetNumLocalParticipants(
+    const std::vector<GlobalDeviceId>& participants,
+    const std::vector<GlobalDeviceId>* local_devices) {
+  if (local_devices == nullptr) return participants.size();
+
+  return absl::c_count_if(participants, [&](const GlobalDeviceId& device_id) {
+    return absl::c_linear_search(*local_devices, device_id);
+  });
+}
+
+
+
+RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options, std::vector<ReplicaGroup> group, int32_t channel_id_present, std::optional<bool> use_global_device_ids, int64_t op_id) {
   const DeviceAssignment& device_assignment = *run_options->device_assignment();
   int device_ordinal = GetDeviceOrdinal(run_options);
-  RendezvousKey::CollectiveOpKind op_kind = channel_id_present
-                                                ? RendezvousKey::kCrossModule
-                                                : RendezvousKey::kCrossReplica;
-  std::vector<GlobalDeviceId> participating_devices =
-      GetParticipatingDevices(GlobalDeviceId(device_ordinal), device_assignment,
-                              group,
-                              GetCollectiveOpGroupMode(channel_id_present != 0,
-                                                       use_global_device_ids)
-                                  .value())
-          .value();
-  int num_local_participants = participating_devices.size();
-  return RendezvousKey{run_options->run_id(), std::move(participating_devices),
-                       num_local_participants, op_kind, op_id};
+  RendezvousKey::CollectiveOpKind op_kind = channel_id_present ? RendezvousKey::kCrossModule : RendezvousKey::kCrossReplica;
+  std::vector<GlobalDeviceId> participating_devices =  GetParticipatingDevices(GlobalDeviceId(device_ordinal), device_assignment, group, GetCollectiveOpGroupMode(channel_id_present != 0, use_global_device_ids).value()).value();
+
+
+
+  //size_t num_local_participants = participating_devices.size();
+  std::vector<GlobalDeviceId> local_devices;
+  if (run_options->cpu_global_device_ids) {
+    local_devices.reserve(run_options->cpu_global_device_ids->size());
+    for (const auto& entry : *run_options->cpu_global_device_ids) {
+      local_devices.push_back(entry.second);
+    }
+  }
+  size_t num_local_participants = GetNumLocalParticipants(participating_devices, run_options->cpu_global_device_ids ? &local_devices : nullptr);
+
+  return RendezvousKey{run_options->run_id(), std::move(participating_devices), num_local_participants, op_kind, op_id};
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
@@ -706,9 +817,7 @@ void AllToAllImpl(const ExecutableRunOptions* run_options,
       static_cast<const char*>(replica_groups_str), replica_groups_str_size);
   std::vector<ReplicaGroup> group =
       ParseReplicaGroupsOnly(replica_groups_serialized).value();
-  RendezvousKey rendezvous_key =
-      GetRendezvousKey(run_options, group, channel_id_present,
-                       /*use_global_device_ids=*/std::nullopt, op_id);
+  RendezvousKey rendezvous_key = GetRendezvousKey(run_options, group, channel_id_present,  /*use_global_device_ids=*/std::nullopt, op_id);
 
   AllToAllParticipantData participant(rendezvous_key, device_ordinal,
                                       run_options->stream());
@@ -746,15 +855,16 @@ void AllReduceImpl(const ExecutableRunOptions* run_options,
                    int32_t reduction_kind, const void* shape_ptr,
                    int32_t shape_length, int32_t num_buffers,
                    void** input_buffers, void** output_buffers) {
+
   int device_ordinal = GetDeviceOrdinal(run_options);
-  absl::string_view replica_groups_serialized(
-      static_cast<const char*>(replica_groups_str), replica_groups_str_size);
-  std::vector<ReplicaGroup> group =
-      ParseReplicaGroupsOnly(replica_groups_serialized).value();
-  RendezvousKey rendezvous_key = GetRendezvousKey(
-      run_options, group, channel_id_present, use_global_device_ids, op_id);
+  absl::string_view replica_groups_serialized(static_cast<const char*>(replica_groups_str), replica_groups_str_size);
+
+  std::vector<ReplicaGroup> group = ParseReplicaGroupsOnly(replica_groups_serialized).value();
+  VLOG(1) << "All-reduce getting rendezvous_key ";
+
+  RendezvousKey rendezvous_key = GetRendezvousKey(run_options, group, channel_id_present, use_global_device_ids, op_id);
   auto shape_str = ShapeString(shape_ptr, shape_length);
-  VLOG(2) << "All-reduce input/output shape : " << shape_str;
+  VLOG(1) << "All-reduce input/output shape : " << shape_str;
 
   Shape shape =
       DecodeSelfDescribingShapeConstant(shape_ptr, shape_length).value();
@@ -762,18 +872,15 @@ void AllReduceImpl(const ExecutableRunOptions* run_options,
   CHECK((num_buffers > 1 && shape.IsTuple()) ||
         (num_buffers == 1 && LayoutUtil::IsDenseArray(shape)));
 
-  AllReduceParticipantData participant(rendezvous_key, device_ordinal,
-                                       run_options->stream());
+  AllReduceParticipantData participant(rendezvous_key, device_ordinal, run_options->stream());
   participant.reduction_kind = static_cast<ReductionKind>(reduction_kind);
   for (int i = 0; i < num_buffers; i++) {
     Shape subshape = num_buffers == 1 ? shape : shape.tuple_shapes(i);
     AllReduceParticipantData::Buffer buffer;
     buffer.element_count = ShapeUtil::ElementsIn(subshape);
     buffer.primitive_type = subshape.element_type();
-    buffer.source_data =
-        se::DeviceMemoryBase(input_buffers[i], ShapeUtil::ByteSizeOf(subshape));
-    buffer.destination_data = se::DeviceMemoryBase(
-        output_buffers[i], ShapeUtil::ByteSizeOf(subshape));
+    buffer.source_data = se::DeviceMemoryBase(input_buffers[i], ShapeUtil::ByteSizeOf(subshape));
+    buffer.destination_data = se::DeviceMemoryBase(output_buffers[i], ShapeUtil::ByteSizeOf(subshape));
     participant.buffers.push_back(buffer);
   }
 
