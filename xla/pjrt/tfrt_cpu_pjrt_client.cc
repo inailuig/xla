@@ -387,7 +387,9 @@ absl::string_view TfrtCpuDeviceDescription::ToString() const {
 TfrtCpuDevice::TfrtCpuDevice(int process_index, int id, int device_ordinal, int max_inflight_computations)
     : description_(process_index, id), device_ordinal_(device_ordinal),
       max_inflight_computations_semaphore_(
-          /*capacity=*/max_inflight_computations) {}
+          /*capacity=*/max_inflight_computations) {
+          VLOG(1) << "TfrtCpuDevice()" << "process_index= "<<process_index << "id=" << id <<" device_ordinal=" << device_ordinal  << " max_inflight_computation=" << max_inflight_computations;
+        }
 
 Status TfrtCpuDevice::TransferToInfeed(const LiteralSlice& literal) {
   return TransferLiteralToInfeedOnCpu(local_hardware_id(), literal);
@@ -560,14 +562,16 @@ Status BuildDistributedDevices(
         //TF_RET_CHECK(it-> != nullptr);
         //local_device = std::move(it);
         cpu_device_ids[device_proto.local_device_ordinal()] = global_device_id;
-       // TODO dont recreate device here
-       devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),device_proto.local_device_ordinal() , 0));
+       // TODO dont recreate device here;
+       // TODO get max_inflight_computation from the orig device
+       devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),device_proto.local_device_ordinal() , 33));
      VLOG(1) << "local dev slice index " << device_proto.slice_index();
        //devices->push_back(std::move(local_devices[device_proto.local_device_ordinal()]));
       }
       else{
      VLOG(1) << "nonlocal dev slice index " << device_proto.slice_index();
-      devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),-1,  0));
+      // TODO -1 is arbitrary, just for debugging
+      devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),-1,  34));
       }
 //      auto device = std::make_unique<TfrtCpuDevice>(
 //          device_proto.global_device_id(), std::move(local_device),
@@ -1036,7 +1040,8 @@ StatusOr<std::unique_ptr<PjRtBuffer>> TfrtCpuClient::BufferFromHostBuffer(
     std::function<void()> on_done_with_host_buffer, PjRtDevice* device) {
   tsl::profiler::TraceMe traceme("TfrtCpuClient::BufferFromHostBuffer");
   Shape shape = ShapeUtil::MakeShape(type, dims);
-  VLOG(2) << "TfrtCpuClient::BufferFromHostBuffer: shape: " << shape.ToString()
+  // TODO error on non-local device
+  VLOG(1) << "TfrtCpuClient::BufferFromHostBuffer: shape: " << shape.ToString()
           << " device: " << device->DebugString();
 
   TF_ASSIGN_OR_RETURN(
