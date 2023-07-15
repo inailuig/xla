@@ -4,7 +4,8 @@ import jax.numpy as jnp
 
 jax.distributed.initialize()
 
-print(jax.devices())
+print('dev', jax.devices())
+print('localdev', jax.local_devices())
 
 @partial(jax.jit, out_shardings=jax.sharding.PositionalSharding(jax.devices()).reshape(-1,1,1))
 def test(x):
@@ -17,5 +18,6 @@ def s(x):
 
 x = jnp.ones((16, 5,3), dtype=jnp.float32)
 x = test(x)
-print(s(x))
+#print(s(x))
 
+print(x.sharding)

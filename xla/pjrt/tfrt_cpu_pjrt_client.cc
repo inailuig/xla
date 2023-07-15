@@ -562,9 +562,11 @@ Status BuildDistributedDevices(
         cpu_device_ids[device_proto.local_device_ordinal()] = global_device_id;
        // TODO dont recreate device here
        devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),device_proto.local_device_ordinal() , 0));
+     VLOG(1) << "local dev slice index " << device_proto.slice_index();
        //devices->push_back(std::move(local_devices[device_proto.local_device_ordinal()]));
       }
       else{
+     VLOG(1) << "nonlocal dev slice index " << device_proto.slice_index();
       devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),-1,  0));
       }
 //      auto device = std::make_unique<TfrtCpuDevice>(
@@ -668,26 +670,21 @@ StatusOr<PjRtDevice*> TfrtCpuClient::LookupAddressableDevice(
                          local_hardware_id);
 }
 
-StatusOr<DeviceAssignment> TfrtCpuClient::GetDefaultDeviceAssignment(
-    int num_replicas, int num_partitions) const {
+StatusOr<DeviceAssignment> TfrtCpuClient::GetDefaultDeviceAssignment(int num_replicas, int num_partitions) const {
   return computation_placer_->AssignDevices(num_replicas, num_partitions);
 }
 
-StatusOr<std::unique_ptr<HloCostAnalysis>> TfrtCpuClient::GetHloCostAnalysis()
-    const {
+StatusOr<std::unique_ptr<HloCostAnalysis>> TfrtCpuClient::GetHloCostAnalysis() const {
   return std::make_unique<HloCostAnalysis>(cpu::CpuExecutable::ShapeSizeBytes);
 }
 
-StatusOr<std::optional<std::string>> TfrtCpuClient::ExecutableFingerprint(
-    const PjRtLoadedExecutable& executable) const {
+StatusOr<std::optional<std::string>> TfrtCpuClient::ExecutableFingerprint( const PjRtLoadedExecutable& executable) const {
   return std::optional<std::string>();
 }
 
 // Find the root instruction of the entry computation.
-static const InstructionValueSet& GetRootValueSet(
-    const BufferAssignment& assignment, const HloModule& module) {
-  return assignment.dataflow_analysis().GetInstructionValueSet(
-      module.entry_computation()->root_instruction());
+static const InstructionValueSet& GetRootValueSet( const BufferAssignment& assignment, const HloModule& module) {
+  return assignment.dataflow_analysis().GetInstructionValueSet(module.entry_computation()->root_instruction());
 }
 
 // Buffer table is indexed by buffer allocation indices. The output buffer is
@@ -697,11 +694,9 @@ static const InstructionValueSet& GetRootValueSet(
 // CreateResultShapedBuffer to reconstruct the output buffer from the buffer
 // table allocated by MemoryForAllocation.
 static StatusOr<absl::InlinedVector<BufferAllocation::Index, 4>>
-FindResultBufferAllocationIndex(const BufferAssignment& assignment,
-                                const HloModule& module) {
+FindResultBufferAllocationIndex(const BufferAssignment& assignment, const HloModule& module) {
   absl::InlinedVector<BufferAllocation::Index, 4> buffer_indices;
-  const InstructionValueSet& root_value_set =
-      GetRootValueSet(assignment, module);
+  const InstructionValueSet& root_value_set = GetRootValueSet(assignment, module);
   const Shape& result_shape = module.result_shape();
   if (!result_shape.IsTuple()) {
     // Find the buffer allocation that corresponds to the output buffer.

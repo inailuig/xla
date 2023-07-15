@@ -143,9 +143,7 @@ class TfrtCpuDevice final : public PjRtDevice {
 
 class TfrtCpuClient final : public PjRtClient {
  public:
-  TfrtCpuClient(int process_index,
-                std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
-                size_t num_threads);
+  TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads);
   ~TfrtCpuClient() override;
 
   int process_index() const override { return process_index_; }
