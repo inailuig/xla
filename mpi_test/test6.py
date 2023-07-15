@@ -1,3 +1,8 @@
+from jax.config import config as jax_config
+jax_config.update("jax_enable_x64", True)
+jax_config.update("jax_threefry_partitionable", True)
+
+
 import jax
 from functools import partial
 import jax.numpy as jnp
@@ -12,19 +17,18 @@ print('dev', jax.devices())
 for d in jax.devices():
    print(d.id, d.host_id, d.process_index, d.task_id)
 
-x = np.ones((12, 5))*jax.process_index()
+k = jax.random.PRNGKey(123)
 
-@partial(jax.jit, out_shardings=PositionalSharding(jax.devices()).reshape(-1, 1))
-def test(x):
-    return x
+@partial(jax.jit, out_shardings=PositionalSharding(jax.devices())) #.reshape(-1, 1))
+def test(k):
+    #return jnp.arange(12)
+    return jax.random.normal(k, (12,))
 
-@jax.jit
-def m(x):
-    return x.sum(axis=0) / x.mean(axis=0)
 
-y = test(x)
 
-y = m(y)
+y = test(k)
 
-print('yd', y.devices(), y.sharding.shape, y.is_fully_addressable, y.addressable_shards[0])
+
+jax.debug.visualize_array_sharding(y)
+print('yd', y.devices(), y.sharding.shape, y.is_fully_addressable, y.addressable_shards)
 jax.distributed.shutdown()
