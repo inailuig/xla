@@ -406,6 +406,19 @@ PYBIND11_MODULE(xla_extension, m) {
         return std::make_shared<PyClient>(ifrt::PjRtClient::Create(std::move(client)));
       },
       py::arg("asynchronous") = true);
+  m.def(
+      "mpi_finalize",
+      [](std::shared_ptr<PyClient> cpu_client){
+        std::shared_ptr<ifrt::PjRtClient> pjrt_cpu_client = std::dynamic_pointer_cast<ifrt::PjRtClient>(cpu_client);
+        VLOG(1) << "MPI TRY FINALIZE ";
+        if (pjrt_cpu_client){
+          TfrtCpuClient* tfrt_cpu_client = dynamic_cast<TfrtCpuClient*>(pjrt_cpu_client->pjrt_client());
+          if(tfrt_cpu_client){
+             tfrt_cpu_client->mpi_finalize();
+          }
+        }
+      },
+      py::arg("cpu_backend"));
   m.def("get_interpreter_client", []() -> std::shared_ptr<PyClient> {
     py::gil_scoped_release gil_release;
     std::unique_ptr<PjRtClient> client =

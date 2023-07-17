@@ -155,6 +155,8 @@ class TfrtCpuClient final : public PjRtClient {
   TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   ~TfrtCpuClient() override;
 
+  void mpi_finalize();
+
   int process_index() const override { return process_index_; }
 
   int device_count() const override { return devices_.size(); }
@@ -278,10 +280,6 @@ class TfrtCpuClient final : public PjRtClient {
     last_collective_launch_event_ = std::move(event);
   }
 
-  // cpu::CpuExecutableRunOptions* cpu_run_options() const {
-  //   return cpu_run_options_.get();
-  // }
-  //TfrtCpuClient& set_cpu_global_device_ids(std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   const std::optional<std::map<int, GlobalDeviceId>>& cpu_global_device_ids() const;
  private:
   int process_index_;
