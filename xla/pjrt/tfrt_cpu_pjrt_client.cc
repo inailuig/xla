@@ -416,7 +416,7 @@ static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(i
   return std::move(devices);
 }
 
-StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous, int cpu_device_count,int max_inflight_computations_per_device) {
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous, int cpu_device_count, int max_inflight_computations_per_device) {
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
 
@@ -448,173 +448,66 @@ StatusOr<std::string> GetBootIdString() {
 }
 
 
-
-static std::string GetLocalTopologyKey(int node_id) {
-  return absl::StrCat("local_topology:", node_id);
-}
-
-static std::string GetGlobalTopologyKey() { return "global_topology"; }
-
-
-
-
-
-static StatusOr<std::vector<LocalTopologyProto>> GetAllLocalTopologies( int num_nodes, const PjRtClient::KeyValueGetCallback& kv_get, absl::Duration timeout) {
-  std::vector<StatusOr<std::string>> local_topology_strs(num_nodes);
-  auto host_context = std::make_unique<tfrt::HostContext>([](
-      const tfrt::DecodedDiagnostic& diag) {LOG(ERROR) << "Encountered runtime error: " << diag.message() << "\n";},
-      tfrt::CreateMallocAllocator(), tfrt::CreateMultiThreadedWorkQueue(/*num_threads=*/DefaultThreadPoolSize(), /*num_blocking_threads=*/4));
-
-  absl::BlockingCounter blocking_counter(num_nodes);
-  absl::Mutex mu;
-  for (int i = 0; i < num_nodes; i++) {
-    tfrt::EnqueueWork(
-        host_context.get(),
-        [&mu, &local_topology_strs, &blocking_counter, &kv_get, i, &timeout] {
-          StatusOr<std::string> local_topology_str = kv_get(GetLocalTopologyKey(i), timeout);
-          {
-            absl::MutexLock lock(&mu);
-            local_topology_strs[i] = local_topology_str;
-          }
-          blocking_counter.DecrementCount();
-        });
-  }
-  blocking_counter.Wait();
-
-  std::vector<std::string> error_messages;
-  std::vector<LocalTopologyProto> local_topologies;
-  int max_num_failed_message = 10;
-  int failed_count = 0;
-  for (const StatusOr<std::string>& str : local_topology_strs) {
-    if (str.ok()) {
-      LocalTopologyProto local;
-      local.ParseFromString(*str);
-      local_topologies.push_back(local);
-    } else {
-      error_messages.push_back(
-          absl::StrCat("Error ", ++failed_count, ": ", str.status().message()));
-      if (failed_count > max_num_failed_message) {
-        break;
-      }
-    }
-  }
-  if (error_messages.empty()) {
-    return local_topologies;
-  }
-  return absl::InternalError(absl::StrCat("Getting local topologies failed: ", absl::StrJoin(error_messages, "\n\n")));
-}
-
-
-Status BuildDistributedDevices(
-    std::vector<std::unique_ptr<TfrtCpuDevice>> local_devices,
-    int node_id, int num_nodes,
+Status BuildDistributedDevicesMPI(
+    int mpi_rank, // mpi rank
+    int mpi_size, // mpi size
+    int cpu_device_count,
+    int max_inflight_computations_per_device,
     std::vector<std::unique_ptr<TfrtCpuDevice>>* devices,
-    std::map<int, GlobalDeviceId>& cpu_device_ids,
-    PjRtClient::KeyValueGetCallback kv_get,
-    PjRtClient::KeyValuePutCallback kv_put,
-    absl::Duration get_local_topology_timeout = absl::Minutes(2),
-    absl::Duration get_global_topology_timeout = absl::Minutes(5)) {
-  LocalTopologyProto local_topology;
-  local_topology.set_node_id(node_id);
-  std::string boot_id_str;
-  auto boot_id_str_or_status = GetBootIdString();
-  if (!boot_id_str_or_status.ok()) {
-    LOG(INFO) << boot_id_str_or_status.status();
-  } else {
-    boot_id_str = boot_id_str_or_status.value();
-  }
-  local_topology.set_boot_id(boot_id_str);
+    std::map<int, GlobalDeviceId>* cpu_device_ids
+  ) {
 
-  for (int id=0; id< local_devices.size(); ++id) { //TODO properly
-      VLOG(1) << "id " << id;
-  //  TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::se::DeviceDescription> desc, id));
-      DeviceProto* device_proto = local_topology.add_devices();
-      device_proto->set_local_device_ordinal(id);
-  //  device_proto->set_name(desc->name());
-  //  device_proto->set_vendor(desc->device_vendor());
-  }
-  VLOG(1) << "CPU Local Topology:\n" << local_topology.DebugString();
-  TF_RETURN_IF_ERROR(kv_put(GetLocalTopologyKey(node_id), local_topology.SerializeAsString()));
+  std::vector<int> n_devices(mpi_size);
+  // get how many threads (i.e. local cpu devices) each rank has
+  MPI_Allgather(&cpu_device_count, 1, MPI_INT, n_devices.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
   GlobalTopologyProto global_topology;
-  // The lead node gets all local topologies, builds the global topology and
-  // puts it to the key-value store.
-  if (node_id == 0) {
-    TF_ASSIGN_OR_RETURN(std::vector<LocalTopologyProto> local_topologies, GetAllLocalTopologies(num_nodes, kv_get, get_local_topology_timeout));
-    global_topology = BuildGlobalTopology(absl::Span<LocalTopologyProto>(local_topologies));
-    TF_RETURN_IF_ERROR(  kv_put(GetGlobalTopologyKey(), global_topology.SerializeAsString()));
-  } else {
-    TF_ASSIGN_OR_RETURN(std::string global_topology_str, kv_get(GetGlobalTopologyKey(), get_global_topology_timeout));
-    global_topology.ParseFromString(global_topology_str);
-  }
-  VLOG(1) << "CPU Global Topology:\n" << global_topology.DebugString();
 
-  // list to know which devices are local
-  //std::map<int, GlobalDeviceId> cpu_device_ids;
+  int next_global_device_id = 0;
+  for (int node_id=0; node_id<mpi_size; ++node_id){
+      LocalTopologyProto* local_topology = global_topology.add_nodes();
+      local_topology->set_node_id(node_id);
+      for (int id=0; id < n_devices.at(node_id); ++id) {
+          const int global_device_id = next_global_device_id++;
+          DeviceProto* device_proto = local_topology->add_devices();
+          device_proto->set_local_device_ordinal(id);
+          device_proto->set_global_device_id(global_device_id);
 
-
-  absl::flat_hash_map<GlobalDeviceId, int> device_to_node;
-  for (const LocalTopologyProto& node : global_topology.nodes()) {
-    for (const DeviceProto& device_proto : node.devices()) {
-      GlobalDeviceId global_device_id(device_proto.global_device_id());
-      device_to_node[global_device_id] = node.node_id();
-      std::unique_ptr<TfrtCpuDevice> local_device;
-      if (node.node_id() == node_id) {
-        // todo instead find the one with .id() == ...
-        //auto it = local_devices[device_proto.local_device_ordinal()];
-        //TF_RET_CHECK(it != local_devices.end()) << device_proto.local_device_ordinal();
-        //TF_RET_CHECK(it-> != nullptr);
-        //local_device = std::move(it);
-        cpu_device_ids[device_proto.local_device_ordinal()] = global_device_id;
-       // TODO dont recreate device here;
-       // TODO get max_inflight_computation from the orig device
-       devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),device_proto.local_device_ordinal() , 33));
-     VLOG(1) << "local dev slice index " << device_proto.slice_index();
-       //devices->push_back(std::move(local_devices[device_proto.local_device_ordinal()]));
+          devices->push_back(std::make_unique<TfrtCpuDevice>(node_id, global_device_id, id,  max_inflight_computations_per_device));
+          if (node_id == mpi_rank) {
+            cpu_device_ids->insert(std::make_pair(id, global_device_id));
+          }
       }
-      else{
-     VLOG(1) << "nonlocal dev slice index " << device_proto.slice_index();
-      // TODO -1 is arbitrary, just for debugging
-      devices->push_back(std::make_unique<TfrtCpuDevice>( node.node_id(), device_proto.global_device_id(),-1,  34));
-      }
-//      auto device = std::make_unique<TfrtCpuDevice>(
-//          device_proto.global_device_id(), std::move(local_device),
-//          device_proto.name(), device_proto.vendor(), node.node_id(),
-//          device_proto.slice_index());
-    }
   }
   return OkStatus();
 }
 
 
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClientMPI(bool asynchronous) {
+  return GetTfrtCpuClientMPI(asynchronous, CpuDeviceCount());
+}
 
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClientMPI(bool asynchronous,  int cpu_device_count, int max_inflight_computations_per_device) {
+  VLOG(1) << "GetTfrtCpuClientMPI";
 
-
-
-
-
-StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient2(bool asynchronous, int node_id, int num_nodes, PjRtClient::KeyValueGetCallback kv_get, PjRtClient::KeyValuePutCallback kv_put) {
-  VLOG(1) << "GetTfrtCpuClient2  node_id=" << node_id << " num_nodes=" << num_nodes;
-  int cpu_device_count = CpuDeviceCount(); // TOOD
-  int max_inflight_computations_per_device = 32; // TODO
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
 
-  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> local_devices,  GetTfrtCpuDevices(node_id, cpu_device_count, max_inflight_computations_per_device));
 
-  if (num_nodes > 1) {
-    TF_RET_CHECK(kv_get != nullptr);
-    TF_RET_CHECK(kv_put != nullptr);
-    std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
-    std::map<int, GlobalDeviceId> cpu_global_device_ids;
-    TF_RETURN_IF_ERROR(BuildDistributedDevices(std::move(local_devices), node_id, num_nodes, &devices, cpu_global_device_ids, kv_get, kv_put));
+  VLOG(1) << "calling MPI_Init";
+  MPI_Init(NULL, NULL);
+  int mpi_rank, mpi_size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  VLOG(1) << "MPI rank=" << mpi_rank << " size=" << mpi_size;
 
-    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(node_id, std::move(devices), num_threads, std::move(cpu_global_device_ids)));
-  } else {
-    return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(node_id, std::move(local_devices), num_threads, std::nullopt ));
-  }
+
+
+  std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
+  std::map<int, GlobalDeviceId> cpu_global_device_ids;
+  TF_RETURN_IF_ERROR(BuildDistributedDevicesMPI(mpi_rank, mpi_size, cpu_device_count, max_inflight_computations_per_device, &devices, &cpu_global_device_ids));
+  return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(mpi_rank, std::move(devices), num_threads, std::move(cpu_global_device_ids)));
 }
-
 
 
 
@@ -638,20 +531,6 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
       transpose_cache_(1024),
       cpu_global_device_ids_(std::move(cpu_global_device_ids))
   {
-    if (cpu_global_device_ids_ != std::nullopt){
-
-      VLOG(1) << "calling MPI_Init";
-      MPI_Init(NULL, NULL);
-      // int mpi_rank, mpi_size;
-      // MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-      // MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-      // TODO check rank and size match node_id and num_nodes
-      VLOG(1) << "done calling MPI_Init";
-    }
-
-  for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
-    VLOG(1) << "addressable?" << device->process_index() << " vs " <<this->process_index() << " lhid: " << device->local_hardware_id();
-  }
 
   for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
     devices_.push_back(device.get());
@@ -675,10 +554,10 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
 
 TfrtCpuClient::~TfrtCpuClient() {
   if (cpu_global_device_ids_ != std::nullopt){
-    VLOG(0) << "MPI_Finalize ";
+    VLOG(1) << "MPI_Finalize ";
     // only finalize if on mpi
     MPI_Finalize();
-    VLOG(0) << "MPI_Finalize done ";
+    VLOG(1) << "MPI_Finalize done ";
   }
   LOG(INFO) << "TfrtCpuClient destroyed.";
 }

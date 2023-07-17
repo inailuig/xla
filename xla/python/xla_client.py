@@ -67,11 +67,8 @@ def make_cpu_client(*, use_tfrt: bool = True) -> ...:
   assert use_tfrt
   return _xla.get_tfrt_cpu_client(asynchronous=True)
 
-def make_cpu_client2(*, distributed_client=None, node_id=0, num_nodes=1, use_tfrt: bool = True) -> ...:
-  assert use_tfrt
-  return _xla.get_tfrt_cpu_client2(distributed_client=distributed_client,
-      node_id=node_id, num_nodes=num_nodes, asynchronous=True)
-
+def make_cpu_client_mpi() -> ...:
+  return _xla.get_tfrt_cpu_client_mpi(asynchronous=True)
 
 def make_gpu_client(distributed_client=None, node_id=0, num_nodes=1,
                     platform_name=None, allowed_devices=None):

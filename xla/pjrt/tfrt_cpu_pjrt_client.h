@@ -518,11 +518,8 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
     bool asynchronous, int cpu_device_count,
     int max_inflight_computations_per_device = 32);
 
-StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient2(
-    bool asynchronous,
-// int cpu_device_count, int max_inflight_computations_per_device,
- int node_id, int num_nodes = 1, PjRtClient::KeyValueGetCallback kv_get = nullptr, PjRtClient::KeyValuePutCallback kv_put = nullptr);
-
+ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClientMPI(bool asynchronous);
+ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClientMPI(bool asynchronous,  int cpu_device_count, int max_inflight_computations_per_device = 32);
 }  // namespace xla
 
 #endif  // XLA_PJRT_TFRT_CPU_PJRT_CLIENT_H_
