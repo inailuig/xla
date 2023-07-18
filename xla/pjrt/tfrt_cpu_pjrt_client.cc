@@ -500,7 +500,8 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
 
   for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
     devices_.push_back(device.get());
-    CHECK(id_to_device_.insert({device->id(), device.get()}).second) << "Duplicate device id: " << device->id();
+    CHECK(id_to_device_.insert({device->id(), device.get()}).second)
+        << "Duplicate device id: " << device->id();
 
     device->SetClient(this);
     if (device->IsAddressable()) {
