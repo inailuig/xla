@@ -155,7 +155,7 @@ class TfrtCpuClient final : public PjRtClient {
   TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   ~TfrtCpuClient() override;
 
-  void mpi_finalize();
+  static void mpi_finalize();
 
   int process_index() const override { return process_index_; }
 

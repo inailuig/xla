@@ -69,7 +69,7 @@ def make_cpu_client(*, use_tfrt: bool = True) -> ...:
 
 def make_cpu_client_mpi() -> ...:
   cpu_client_mpi = _xla.get_tfrt_cpu_client_mpi(asynchronous=True)
-  atexit.register(_xla.mpi_finalize, cpu_client_mpi)
+  atexit.register(_xla.mpi_finalize)
   return cpu_client_mpi
 
 def make_gpu_client(distributed_client=None, node_id=0, num_nodes=1,

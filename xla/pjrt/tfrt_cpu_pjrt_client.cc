@@ -557,12 +557,12 @@ TfrtCpuClient::~TfrtCpuClient() {
 }
 
 void TfrtCpuClient::mpi_finalize() {
-  if (cpu_global_device_ids_ != std::nullopt){
+  //if (cpu_global_device_ids_ != std::nullopt){
     VLOG(1) << "MPI_Finalize ";
     // only finalize if on mpi
     MPI_Finalize();
     VLOG(1) << "MPI_Finalize done ";
-  }
+  //}
 }
 
 StatusOr<PjRtDevice*> TfrtCpuClient::LookupDevice(int device_id) const {
