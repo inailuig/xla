@@ -89,9 +89,6 @@ limitations under the License.
 #include "tfrt/host_context/async_value_ref.h"  // from @tf_runtime
 #include "tfrt/support/forward_decls.h"  // from @tf_runtime
 
-// #include <fstream>
-
-
 namespace xla {
 namespace {
 
@@ -404,11 +401,14 @@ static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(i
   return std::move(devices);
 }
 
-StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous, int cpu_device_count, int max_inflight_computations_per_device) {
+StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
+    bool asynchronous, int cpu_device_count,
+    int max_inflight_computations_per_device) {
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
-
-  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices, GetTfrtCpuDevices(0, cpu_device_count, max_inflight_computations_per_device));
+  TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
+                      GetTfrtCpuDevices(0, cpu_device_count,
+                                        max_inflight_computations_per_device));
 
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(
       /*process_index=*/0, std::move(devices), num_threads, std::nullopt));
@@ -518,9 +518,7 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
   LOG(INFO) << "TfrtCpuClient created.";
 }
 
-TfrtCpuClient::~TfrtCpuClient() {
-  LOG(INFO) << "TfrtCpuClient destroyed.";
-}
+TfrtCpuClient::~TfrtCpuClient() { LOG(INFO) << "TfrtCpuClient destroyed."; }
 
 void TfrtCpuClient::mpi_finalize() {
   //if (cpu_global_device_ids_ != std::nullopt){
@@ -551,22 +549,27 @@ StatusOr<PjRtDevice*> TfrtCpuClient::LookupAddressableDevice(
                          local_hardware_id);
 }
 
-StatusOr<DeviceAssignment> TfrtCpuClient::GetDefaultDeviceAssignment(int num_replicas, int num_partitions) const {
+StatusOr<DeviceAssignment> TfrtCpuClient::GetDefaultDeviceAssignment(
+    int num_replicas, int num_partitions) const {
   return computation_placer_->AssignDevices(num_replicas, num_partitions);
 }
 
-StatusOr<std::unique_ptr<HloCostAnalysis>> TfrtCpuClient::GetHloCostAnalysis() const {
+StatusOr<std::unique_ptr<HloCostAnalysis>> TfrtCpuClient::GetHloCostAnalysis()
+    const {
   return std::make_unique<HloCostAnalysis>(cpu::CpuExecutable::ShapeSizeBytes);
 }
 
-StatusOr<std::optional<std::string>> TfrtCpuClient::ExecutableFingerprint( const PjRtLoadedExecutable& executable) const {
+StatusOr<std::optional<std::string>> TfrtCpuClient::ExecutableFingerprint(
+    const PjRtLoadedExecutable& executable) const {
   return std::optional<std::string>();
 }
 
 // Find the root instruction of the entry computation.
-static const InstructionValueSet& GetRootValueSet( const BufferAssignment& assignment, const HloModule& module) {
-  return assignment.dataflow_analysis().GetInstructionValueSet(module.entry_computation()->root_instruction());
-}
+static const InstructionValueSet& GetRootValueSet(
+    const BufferAssignment& assignment, const HloModule& module) {
+  return assignment.dataflow_analysis().GetInstructionValueSet(
+      module.entry_computation()->root_instruction());
+  }
 
 // Buffer table is indexed by buffer allocation indices. The output buffer is
 // made up of a subset of those buffer allocations (for tuple, it includes tuple
@@ -575,9 +578,11 @@ static const InstructionValueSet& GetRootValueSet( const BufferAssignment& assig
 // CreateResultShapedBuffer to reconstruct the output buffer from the buffer
 // table allocated by MemoryForAllocation.
 static StatusOr<absl::InlinedVector<BufferAllocation::Index, 4>>
-FindResultBufferAllocationIndex(const BufferAssignment& assignment, const HloModule& module) {
+FindResultBufferAllocationIndex(const BufferAssignment& assignment,
+                                const HloModule& module) {
   absl::InlinedVector<BufferAllocation::Index, 4> buffer_indices;
-  const InstructionValueSet& root_value_set = GetRootValueSet(assignment, module);
+  const InstructionValueSet& root_value_set =
+       GetRootValueSet(assignment, module);
   const Shape& result_shape = module.result_shape();
   if (!result_shape.IsTuple()) {
     // Find the buffer allocation that corresponds to the output buffer.
@@ -918,7 +923,7 @@ StatusOr<std::unique_ptr<PjRtBuffer>> TfrtCpuClient::BufferFromHostBuffer(
   tsl::profiler::TraceMe traceme("TfrtCpuClient::BufferFromHostBuffer");
   Shape shape = ShapeUtil::MakeShape(type, dims);
   // TODO error on non-local device
-  VLOG(1) << "TfrtCpuClient::BufferFromHostBuffer: shape: " << shape.ToString()
+  VLOG(2) << "TfrtCpuClient::BufferFromHostBuffer: shape: " << shape.ToString()
           << " device: " << device->DebugString();
 
   TF_ASSIGN_OR_RETURN(
@@ -1337,7 +1342,6 @@ StatusOr<PjRtLoadedExecutable::Result> TfrtCpuExecutable::ExecuteHelper(
   // Need to keep device_assignment alive until execution completes.
   run_options.set_device_assignment(device_assignment.get());
   run_options.set_intra_op_thread_pool(client_->eigen_intraop_device());
-  // ASDF set local devices id map thing
   run_options.cpu_global_device_ids = client_->cpu_global_device_ids() ? &*client_->cpu_global_device_ids(): nullptr;
 
   // Schedule only one collective at a time.
