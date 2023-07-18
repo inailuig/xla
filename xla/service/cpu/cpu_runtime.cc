@@ -569,8 +569,11 @@ class CpuAllReduceRendezvous
       T* out = output_buffers[0][buffer_idx].data();
       for (int idx = 0; idx < element_count; idx++) {
         out[idx] = GetInitialValue<T>(reduction_kind);
-        for (int participant_idx = 0; participant_idx < participants_.size(); participant_idx++) {
-          out[idx] = PerformReductionStep<T>(reduction_kind, out[idx], input_buffers[participant_idx][buffer_idx][idx]);
+        for (int participant_idx = 0; participant_idx < participants_.size();
+             participant_idx++) {
+          out[idx] = PerformReductionStep<T>(
+              reduction_kind, out[idx],
+              input_buffers[participant_idx][buffer_idx][idx]);
         }
       }
       // char mytypename[MPI_MAX_OBJECT_NAME];
@@ -581,7 +584,8 @@ class CpuAllReduceRendezvous
       MPI_Allreduce(MPI_IN_PLACE,(void*) out, element_count, GetMPI_Datatype<PT>(), GetMPI_Op(reduction_kind), MPI_COMM_WORLD);
 
       for (int idx = 0; idx < element_count; idx++) {
-        for (int participant_idx = 1; participant_idx < participants_.size(); participant_idx++) {
+        for (int participant_idx = 0; participant_idx < participants_.size();
+             participant_idx++) {
           output_buffers[participant_idx][buffer_idx][idx] = out[idx];
         }
       }
@@ -675,8 +679,6 @@ GlobalAllToAllRendezvousMap() {
   return m;
 }
 
-
-
 size_t GetNumLocalParticipants(
     const std::vector<GlobalDeviceId>& participants,
     const std::vector<GlobalDeviceId>* local_devices) {
@@ -687,13 +689,23 @@ size_t GetNumLocalParticipants(
   });
 }
 
-
-
-RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options, std::vector<ReplicaGroup> group, int32_t channel_id_present, std::optional<bool> use_global_device_ids, int64_t op_id) {
+RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options,
+                               std::vector<ReplicaGroup> group,
+                               int32_t channel_id_present,
+                               std::optional<bool> use_global_device_ids,
+                               int64_t op_id) {
   const DeviceAssignment& device_assignment = *run_options->device_assignment();
   int device_ordinal = GetDeviceOrdinal(run_options);
-  RendezvousKey::CollectiveOpKind op_kind = channel_id_present ? RendezvousKey::kCrossModule : RendezvousKey::kCrossReplica;
-  std::vector<GlobalDeviceId> participating_devices =  GetParticipatingDevices(GlobalDeviceId(device_ordinal), device_assignment, group, GetCollectiveOpGroupMode(channel_id_present != 0, use_global_device_ids).value()).value();
+  RendezvousKey::CollectiveOpKind op_kind = channel_id_present
+                                                ? RendezvousKey::kCrossModule
+                                                : RendezvousKey::kCrossReplica;
+  std::vector<GlobalDeviceId> participating_devices =
+      GetParticipatingDevices(GlobalDeviceId(device_ordinal), device_assignment,
+                              group,
+                              GetCollectiveOpGroupMode(channel_id_present != 0,
+                                                       use_global_device_ids)
+                                  .value())
+          .value();
 
   std::vector<GlobalDeviceId> local_devices;
   if (run_options->cpu_global_device_ids) {
@@ -704,7 +716,8 @@ RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options, std::vec
   }
   size_t num_local_participants = GetNumLocalParticipants(participating_devices, run_options->cpu_global_device_ids ? &local_devices : nullptr);
 
-  return RendezvousKey{run_options->run_id(), std::move(participating_devices), num_local_participants, op_kind, op_id};
+  return RendezvousKey{run_options->run_id(), std::move(participating_devices),
+                     num_local_participants, op_kind, op_id};
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
@@ -798,7 +811,8 @@ void AllToAllImpl(const ExecutableRunOptions* run_options,
       ParseReplicaGroupsOnly(replica_groups_serialized).value();
   RendezvousKey rendezvous_key =
       GetRendezvousKey(run_options, group, channel_id_present,
-                           /*use_global_device_ids=*/std::nullopt, op_id);
+                       /*use_global_device_ids=*/std::nullopt, op_id);
+
   AllToAllParticipantData participant(rendezvous_key, device_ordinal,
                                       run_options->stream());
   participant.device_id = GlobalDeviceId(device_ordinal);
@@ -851,9 +865,8 @@ void AllReduceImpl(const ExecutableRunOptions* run_options,
   CHECK((num_buffers > 1 && shape.IsTuple()) ||
         (num_buffers == 1 && LayoutUtil::IsDenseArray(shape)));
 
-
   AllReduceParticipantData participant(rendezvous_key, device_ordinal,
-                                      run_options->stream());
+                                       run_options->stream());
   participant.reduction_kind = static_cast<ReductionKind>(reduction_kind);
   for (int i = 0; i < num_buffers; i++) {
     Shape subshape = num_buffers == 1 ? shape : shape.tuple_shapes(i);
@@ -903,7 +916,10 @@ void PartitionIdImpl(const ExecutableRunOptions* run_options,
   else{
       global_device_id = run_options->cpu_global_device_ids->at(device_ordinal);
   }
-  const DeviceAssignment::LogicalID logical_id = run_options->device_assignment()->LogicalIdForDevice(global_device_id).value();
+  const DeviceAssignment::LogicalID logical_id =
+      run_options->device_assignment()
+          ->LogicalIdForDevice(global_device_id)
+          .value();
   std::memcpy(output_buffer, &logical_id.computation_id, 4);
 }
 
