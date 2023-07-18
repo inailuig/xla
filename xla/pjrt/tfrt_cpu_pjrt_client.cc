@@ -406,6 +406,7 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(
     int max_inflight_computations_per_device) {
   // Need at least CpuDeviceCount threads to launch one collective.
   size_t num_threads = std::max(DefaultThreadPoolSize(), cpu_device_count);
+
   TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
                       GetTfrtCpuDevices(0, cpu_device_count,
                                         max_inflight_computations_per_device));
@@ -475,25 +476,29 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClientMPI(bool asynchronous,  in
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(mpi_rank, std::move(devices), num_threads, std::move(cpu_global_device_ids)));
 }
 
-
+const std::optional<std::map<int, GlobalDeviceId>>&TfrtCpuClient::cpu_global_device_ids() const {
+  return cpu_global_device_ids_;
+}
 
 StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous) {
   return GetTfrtCpuClient(asynchronous, CpuDeviceCount());
-}
-
-const std::optional<std::map<int, GlobalDeviceId>>&TfrtCpuClient::cpu_global_device_ids() const {
-  return cpu_global_device_ids_;
 }
 
 TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids )
     : process_index_(process_index),
       owned_devices_(std::move(devices)),
       computation_placer_(std::make_unique<ComputationPlacer>()),
-      pjrt_client_thread_pool_(new tsl::thread::ThreadPool( tsl::Env::Default(), "XLATfrtCpuClient", num_threads)),
-      async_work_runner_(std::make_unique<ThreadPoolAsyncWorkRunner>(pjrt_client_thread_pool_.get())),
-      eigen_intraop_pool_(new tsl::thread::ThreadPool( tsl::Env::Default(), "XLAEigen", DefaultThreadPoolSize())),
-      eigen_intraop_device_(new Eigen::ThreadPoolDevice(eigen_intraop_pool_->AsEigenThreadPool(), eigen_intraop_pool_->NumThreads())),
-      last_collective_launch_event_(tfrt::MakeAvailableAsyncValueRef<CpuEvent>()),
+      pjrt_client_thread_pool_(new tsl::thread::ThreadPool(
+          tsl::Env::Default(), "XLATfrtCpuClient", num_threads)),
+      async_work_runner_(std::make_unique<ThreadPoolAsyncWorkRunner>(
+          pjrt_client_thread_pool_.get())),
+      eigen_intraop_pool_(new tsl::thread::ThreadPool(
+          tsl::Env::Default(), "XLAEigen", DefaultThreadPoolSize())),
+      eigen_intraop_device_(
+          new Eigen::ThreadPoolDevice(eigen_intraop_pool_->AsEigenThreadPool(),
+                                      eigen_intraop_pool_->NumThreads())),
+      last_collective_launch_event_(
+          tfrt::MakeAvailableAsyncValueRef<CpuEvent>()),
       transpose_cache_(1024),
       cpu_global_device_ids_(std::move(cpu_global_device_ids))
   {
@@ -526,7 +531,6 @@ void TfrtCpuClient::mpi_finalize() {
     VLOG(1) << "MPI_Finalize ";
     // only finalize if on mpi
     MPI_Finalize();
-    VLOG(1) << "MPI_Finalize done ";
   //}
 }
 
@@ -570,7 +574,7 @@ static const InstructionValueSet& GetRootValueSet(
     const BufferAssignment& assignment, const HloModule& module) {
   return assignment.dataflow_analysis().GetInstructionValueSet(
       module.entry_computation()->root_instruction());
-  }
+}
 
 // Buffer table is indexed by buffer allocation indices. The output buffer is
 // made up of a subset of those buffer allocations (for tuple, it includes tuple
@@ -583,7 +587,7 @@ FindResultBufferAllocationIndex(const BufferAssignment& assignment,
                                 const HloModule& module) {
   absl::InlinedVector<BufferAllocation::Index, 4> buffer_indices;
   const InstructionValueSet& root_value_set =
-       GetRootValueSet(assignment, module);
+      GetRootValueSet(assignment, module);
   const Shape& result_shape = module.result_shape();
   if (!result_shape.IsTuple()) {
     // Find the buffer allocation that corresponds to the output buffer.

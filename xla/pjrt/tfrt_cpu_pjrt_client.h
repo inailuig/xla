@@ -61,7 +61,6 @@ limitations under the License.
 #include "xla/statusor.h"
 #include "third_party/mpi/mpi.h"
 
-
 namespace xla {
 
 class TfrtCpuDeviceDescription final : public PjRtDeviceDescription {
