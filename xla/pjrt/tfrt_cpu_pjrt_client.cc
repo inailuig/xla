@@ -391,7 +391,8 @@ static int CpuDeviceCount() {
   return GetDebugOptionsFromFlags().xla_force_host_platform_device_count();
 }
 
-static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(int process_index, int cpu_device_count, int max_inflight_computations_per_device) {
+static StatusOr<std::vector<std::unique_ptr<TfrtCpuDevice>>> GetTfrtCpuDevices(
+    int process_index, int cpu_device_count, int max_inflight_computations_per_device) {
   std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
   for (int i = 0; i < cpu_device_count; ++i) {
     auto device = std::make_unique<TfrtCpuDevice>(
@@ -484,7 +485,9 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous) {
   return GetTfrtCpuClient(asynchronous, CpuDeviceCount());
 }
 
-TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids )
+TfrtCpuClient::TfrtCpuClient(
+    int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
+    size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids )
     : process_index_(process_index),
       owned_devices_(std::move(devices)),
       computation_placer_(std::make_unique<ComputationPlacer>()),
@@ -500,9 +503,7 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
       last_collective_launch_event_(
           tfrt::MakeAvailableAsyncValueRef<CpuEvent>()),
       transpose_cache_(1024),
-      cpu_global_device_ids_(std::move(cpu_global_device_ids))
-  {
-
+      cpu_global_device_ids_(std::move(cpu_global_device_ids)) {
   for (const std::unique_ptr<TfrtCpuDevice>& device : owned_devices_) {
     devices_.push_back(device.get());
     CHECK(id_to_device_.insert({device->id(), device.get()}).second)
@@ -527,11 +528,8 @@ TfrtCpuClient::TfrtCpuClient(int process_index, std::vector<std::unique_ptr<Tfrt
 TfrtCpuClient::~TfrtCpuClient() { LOG(INFO) << "TfrtCpuClient destroyed."; }
 
 void TfrtCpuClient::mpi_finalize() {
-  //if (cpu_global_device_ids_ != std::nullopt){
     VLOG(1) << "MPI_Finalize ";
-    // only finalize if on mpi
     MPI_Finalize();
-  //}
 }
 
 StatusOr<PjRtDevice*> TfrtCpuClient::LookupDevice(int device_id) const {
