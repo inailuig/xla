@@ -58,11 +58,7 @@ limitations under the License.
 #include "tsl/platform/fingerprint.h"
 #include "tsl/platform/threadpool.h"
 #include "tfrt/host_context/async_value_ref.h"  // from @tf_runtime
-
-//#include "xla/pjrt/distributed/client.h"
-#include "xla/pjrt/pjrt_stream_executor_client.h"
 #include "xla/statusor.h"
-
 #include "third_party/mpi/mpi.h"
 
 

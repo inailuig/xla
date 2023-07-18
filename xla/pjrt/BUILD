@@ -551,7 +551,6 @@ cc_library(
         "//xla:friends",
     ],
     deps = [
-        "//third_party/mpi",
         ":abstract_tfrt_cpu_buffer",
         ":compile_options_proto_cc",
         ":mlir_to_hlo",
@@ -587,12 +586,7 @@ cc_library(
         "//xla/service/cpu:cpu_compiler",
         "//xla/service/cpu:cpu_executable",
         "//xla/service/cpu:cpu_xfeed",
-
-# added
-        "//xla/pjrt:pjrt_stream_executor_client",
         "//xla/pjrt/distributed:topology_util",
-
-
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -616,6 +610,7 @@ cc_library(
         "@tsl//tsl/platform:setround",
         "@tsl//tsl/platform:statusor",
         "@tsl//tsl/profiler/lib:connected_traceme",
+        "//third_party/mpi",
     ],
 )
 

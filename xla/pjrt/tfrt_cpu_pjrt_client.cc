@@ -62,6 +62,7 @@ limitations under the License.
 #include "xla/pjrt/tracked_tfrt_cpu_device_buffer.h"
 #include "xla/pjrt/transpose.h"
 #include "xla/pjrt/utils.h"
+#include "xla/pjrt/distributed/topology_util.h"
 #include "xla/runtime/cpu_event.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/computation_placer.h"
@@ -88,18 +89,7 @@ limitations under the License.
 #include "tfrt/host_context/async_value_ref.h"  // from @tf_runtime
 #include "tfrt/support/forward_decls.h"  // from @tf_runtime
 
-#include "tfrt/host_context/async_dispatch.h"  // from @tf_runtime
-#include "tfrt/host_context/concurrent_work_queue.h"  // from @tf_runtime
-#include "tfrt/host_context/diagnostic.h"  // from @tf_runtime
-#include "tfrt/host_context/host_allocator.h"  // from @tf_runtime
-#include "tfrt/host_context/host_context.h"  // from @tf_runtime
-
-
-#include "absl/synchronization/blocking_counter.h"
-
-#include "xla/pjrt/distributed/topology_util.h"
-
-#include <fstream>
+// #include <fstream>
 
 
 namespace xla {
@@ -425,28 +415,6 @@ StatusOr<std::unique_ptr<PjRtClient>> GetTfrtCpuClient(bool asynchronous, int cp
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtCpuClient>(
       /*process_index=*/0, std::move(devices), num_threads, std::nullopt));
 }
-
-
-
-static constexpr char kBootIdPath[] = "/proc/sys/kernel/random/boot_id";
-
-
-StatusOr<std::string> GetBootIdString() {
-  std::string boot_id_str;
-#ifdef __linux__
-  std::ifstream file(kBootIdPath);
-  if (!file) {
-    return NotFound("%s not found.", kBootIdPath);
-  }
-  std::string line;
-  while (std::getline(file, line)) {
-    absl::StripAsciiWhitespace(&line);
-    absl::StrAppend(&boot_id_str, line);
-  }
-#endif
-  return boot_id_str;
-}
-
 
 Status BuildDistributedDevicesMPI(
     int mpi_rank, // mpi rank
