@@ -377,9 +377,7 @@ absl::string_view TfrtCpuDeviceDescription::ToString() const {
 TfrtCpuDevice::TfrtCpuDevice(int process_index, int id, int device_ordinal, int max_inflight_computations)
     : description_(process_index, id), device_ordinal_(device_ordinal),
       max_inflight_computations_semaphore_(
-          /*capacity=*/max_inflight_computations) {
-          VLOG(1) << "TfrtCpuDevice()" << "process_index= "<<process_index << "id=" << id <<" device_ordinal=" << device_ordinal  << " max_inflight_computation=" << max_inflight_computations;
-        }
+          /*capacity=*/max_inflight_computations) {}
 
 Status TfrtCpuDevice::TransferToInfeed(const LiteralSlice& literal) {
   return TransferLiteralToInfeedOnCpu(local_hardware_id(), literal);

@@ -111,7 +111,6 @@ class TfrtCpuDevice final : public PjRtDevice {
   }
 
   // Used as `device_ordinal`.
-  //int local_hardware_id() const override { return id(); }
   int local_hardware_id() const override { return device_ordinal_; }
   Status TransferToInfeed(const LiteralSlice& literal) override;
 
@@ -119,7 +118,6 @@ class TfrtCpuDevice final : public PjRtDevice {
 
   // Returns a semaphore for admission control on inflight computations.
   Semaphore& max_inflight_computations_semaphore() {
-    VLOG(1) << "max_inflight_computations_semaphore()";
     return max_inflight_computations_semaphore_;
   }
 
@@ -131,20 +129,13 @@ class TfrtCpuDevice final : public PjRtDevice {
  private:
   PjRtClient* client_ = nullptr;
   TfrtCpuDeviceDescription description_;
-  const int device_ordinal_;  // -1 means not local.
+  const int device_ordinal_;
 
   // TODO(zhangqiaorjc): Optimize semaphore related overhead.
   // Semaphore used to limit how many programs can be enqueued by the host
   // ahead of the device.
   Semaphore max_inflight_computations_semaphore_;
 };
-
-
-
-
-
-
-
 
 class TfrtCpuClient final : public PjRtClient {
  public:

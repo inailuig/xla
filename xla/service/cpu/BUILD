@@ -802,10 +802,7 @@ cc_library(
         "xfeed_manager.h",
     ],
     copts = runtime_copts(),
-    #copts = runtime_copts()+["-I/usr/lib/x86_64-linux-gnu/openmpi/include","-I/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi"],
-    #linkopts = ["-L/usr/lib/x86_64-linux-gnu/openmpi/lib", "-lmpi"],
     deps = [
-        "//third_party/mpi",
         "//xla:executable_run_options",
         "//xla:refcounting_hash_map",
         "//xla:shape_util",
@@ -830,6 +827,7 @@ cc_library(
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/platform:status",
         "@tsl//tsl/profiler/lib:traceme",
+        "//third_party/mpi",
     ],
 )
 
