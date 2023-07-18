@@ -717,7 +717,7 @@ RendezvousKey GetRendezvousKey(const ExecutableRunOptions* run_options,
   size_t num_local_participants = GetNumLocalParticipants(participating_devices, run_options->cpu_global_device_ids ? &local_devices : nullptr);
 
   return RendezvousKey{run_options->run_id(), std::move(participating_devices),
-                     num_local_participants, op_kind, op_id};
+                       num_local_participants, op_kind, op_id};
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY

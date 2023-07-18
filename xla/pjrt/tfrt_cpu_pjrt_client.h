@@ -112,6 +112,7 @@ class TfrtCpuDevice final : public PjRtDevice {
 
   // Used as `device_ordinal`.
   int local_hardware_id() const override { return device_ordinal_; }
+
   Status TransferToInfeed(const LiteralSlice& literal) override;
 
   Status TransferFromOutfeed(MutableBorrowingLiteral literal) override;
@@ -139,7 +140,10 @@ class TfrtCpuDevice final : public PjRtDevice {
 
 class TfrtCpuClient final : public PjRtClient {
  public:
-  TfrtCpuClient(int process_index, std::vector<std::unique_ptr<TfrtCpuDevice>> devices,size_t num_threads, std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
+  TfrtCpuClient(int process_index,
+                std::vector<std::unique_ptr<TfrtCpuDevice>> devices,
+                size_t num_threads,
+                std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids);
   ~TfrtCpuClient() override;
 
   static void mpi_finalize();
@@ -309,7 +313,6 @@ class TfrtCpuClient final : public PjRtClient {
   TransposePlanCache transpose_cache_ ABSL_GUARDED_BY(transpose_mu_);
   std::optional<std::map<int, GlobalDeviceId>> cpu_global_device_ids_;
 };
-
 
 class TfrtCpuBuffer final : public AbstractTfrtCpuBuffer {
  public:
