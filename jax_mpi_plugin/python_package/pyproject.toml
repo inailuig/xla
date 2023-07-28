@@ -1,6 +1,6 @@
 [project]
 name = "jax-mpi"
-version = "0.4.14"
+version = "0.4.15"
 
 [project.entry-points.'jax_plugins']
 mpi_plugin = 'mpi_plugin'
