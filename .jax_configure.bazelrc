@@ -1,0 +1,4 @@
+build --strategy=Genrule=standalone
+build:rocm --action_env TF_ROCM_AMDGPU_TARGETS="gfx900,gfx906,gfx908,gfx90a,gfx1030"
+build --config=avx_posix
+build --config=mkl_open_source_only
