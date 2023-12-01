@@ -1,0 +1,22 @@
+name: build_plugin
+
+on:
+  push:
+    branches:
+      - mpi_allreduce_plugin
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: build
+        run: (cd jax_mpi_plugin; ./build.sh)
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: wheel
+          path: jax_mpi_plugin/jax_mpi-*-py3-none-manylinux2014_x86_64.whl      
