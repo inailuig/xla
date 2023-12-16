@@ -48,46 +48,34 @@ limitations under the License.
 
 namespace xla::cpu {
 
-static absl::Status PrimitiveTypeToMpiType(PrimitiveType element_type,
-                                           MPI_Datatype& type) {
+absl::StatusOr<MPI_Datatype> PrimitiveTypeToMpiType(
+    PrimitiveType element_type) {
   switch (element_type) {
     case S8:
-      type = MPI_INT8_T;
-      break;
+      return MPI_INT8_T;
     case U8:
     case PRED:
-      type = MPI_UINT8_T;
-      break;
+      return MPI_UINT8_T;
     case S16:
-      type = MPI_INT16_T;
-      break;
+      return MPI_INT16_T;
     case U16:
-      type = MPI_UINT16_T;
-      break;
+      return MPI_UINT16_T;
     case S32:
-      type = MPI_INT32_T;
-      break;
+      return MPI_INT32_T;
     case U32:
-      type = MPI_UINT32_T;
-      break;
+      return MPI_UINT32_T;
     case S64:
-      type = MPI_INT64_T;
-      break;
+      return MPI_INT64_T;
     case U64:
-      type = MPI_UINT64_T;
-      break;
+      return MPI_UINT64_T;
     case F32:
-      type = MPI_FLOAT;
-      break;
+      return MPI_FLOAT;
     case F64:
-      type = MPI_DOUBLE;
-      break;
+      return MPI_DOUBLE;
     case C64:
-      type = MPI_C_COMPLEX;
-      break;
+      return MPI_C_COMPLEX;
     case C128:
-      type = MPI_C_DOUBLE_COMPLEX;
-      break;
+      return MPI_C_DOUBLE_COMPLEX;
     default:
       // TODO implement reduction for the unsupported types
       // see e.g. https://stackoverflow.com/a/29643391
@@ -95,42 +83,39 @@ static absl::Status PrimitiveTypeToMpiType(PrimitiveType element_type,
           "Unsupported primitive type for reduction: ",
           primitive_util::LowercasePrimitiveTypeName(element_type)));
   }
-  return absl::OkStatus();
 }
 
 bool MpiTypeIsComplex(MPI_Datatype type) {
   return type == MPI_C_COMPLEX || type == MPI_C_DOUBLE_COMPLEX;
 }
 
-static absl::Status ReductionKindToMpiOp(ReductionKind reduction_kind,
-                                         MPI_Datatype type, MPI_Op& op) {
+absl::StatusOr<MPI_Op> ReductionKindToMpiOp(ReductionKind reduction_kind,
+                                            MPI_Datatype type) {
   switch (reduction_kind) {
     case ReductionKind::SUM:
-      op = MPI_SUM;
-      break;
+      return MPI_SUM;
     case ReductionKind::PRODUCT:
-      op = MPI_PROD;
-      break;
+      return MPI_PROD;
     case ReductionKind::MIN:
       // TODO implement custom complex max/min reduction
       if (!MpiTypeIsComplex(type)) {
-        op = MPI_MIN;
+        return MPI_MIN;
       } else {
         return absl::InvalidArgumentError(
             "MIN reduction not supported for complex types");
       }
-      break;
     case ReductionKind::MAX:
       // TODO implement custom complex max/min reduction
       if (!MpiTypeIsComplex(type)) {
-        op = MPI_MAX;
+        return MPI_MAX;
       } else {
         return absl::InvalidArgumentError(
             "MAX reduction not supported for complex types");
       }
-      break;
+    default:
+      return absl::InvalidArgumentError(
+          absl::StrCat("Unknown reduction", reduction_kind));
   }
-  return absl::OkStatus();
 }
 
 static absl::Status MpiErrorToAbslStatus(int error) {
@@ -163,10 +148,8 @@ absl::Status MpiCollectivesCommunicator::AllReduce(
     const RendezvousKey& key, ReductionKind reduction_kind,
     PrimitiveType element_type, size_t num_elements, const void* input_buffer,
     void* output_buffer, absl::Duration timeout) {
-  MPI_Op op;
-  MPI_Datatype type;
-  TF_RETURN_IF_ERROR(PrimitiveTypeToMpiType(element_type, type));
-  TF_RETURN_IF_ERROR(ReductionKindToMpiOp(reduction_kind, type, op));
+  TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
+  TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
   return MpiErrorToAbslStatus(
       MPI_Allreduce(input_buffer, output_buffer, num_elements, type, op, comm));
 }
@@ -200,9 +183,9 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     if (target != rank) {
       VLOG(1) << "send from " << rank << " to " << target;
       requests.emplace_back();
-      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-          MPI_Isend(input_buffer, num_bytes, MPI_BYTE, target, tag, comm,
-                    &requests.back())));
+      TF_RETURN_IF_ERROR(
+          MpiErrorToAbslStatus(MPI_Isend(input_buffer, num_bytes, MPI_BYTE,
+                                         target, tag, comm, &requests.back())));
     }
   }
 
@@ -244,9 +227,9 @@ absl::Status MpiCollectivesCommunicator::AllGather(const RendezvousKey& key,
                                                    const void* input_buffer,
                                                    void* output_buffer,
                                                    absl::Duration timeout) {
-  return MpiErrorToAbslStatus(MPI_Allgather(input_buffer, chunk_bytes,
-                                                MPI_BYTE, output_buffer,
-                                                chunk_bytes, MPI_BYTE, comm));
+  return MpiErrorToAbslStatus(MPI_Allgather(input_buffer, chunk_bytes, MPI_BYTE,
+                                            output_buffer, chunk_bytes,
+                                            MPI_BYTE, comm));
 }
 
 absl::Status MpiCollectivesCommunicator::ReduceScatter(
@@ -256,10 +239,8 @@ absl::Status MpiCollectivesCommunicator::ReduceScatter(
   int size;
   MPI_Comm_size(comm, &size);
   std::vector<int> recvcounts(size, chunk_elems);
-  MPI_Op op;
-  MPI_Datatype type;
-  TF_RETURN_IF_ERROR(PrimitiveTypeToMpiType(element_type, type));
-  TF_RETURN_IF_ERROR(ReductionKindToMpiOp(reduction_kind, type, op));
+  TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
+  TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
   return MpiErrorToAbslStatus(MPI_Reduce_scatter(
       input_buffer, output_buffer, recvcounts.data(), type, op, comm));
 }
