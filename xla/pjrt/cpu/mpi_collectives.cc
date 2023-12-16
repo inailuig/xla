@@ -114,7 +114,7 @@ absl::StatusOr<MPI_Op> ReductionKindToMpiOp(ReductionKind reduction_kind,
       }
     default:
       return absl::InvalidArgumentError(
-          absl::StrCat("Unknown reduction", reduction_kind));
+          absl::StrCat("Unknown reduction kind: ", reduction_kind));
   }
 }
 
