@@ -68,6 +68,7 @@ limitations under the License.
 #include "xla/pjrt/cpu/gloo_collectives.h"
 #include "xla/pjrt/cpu/gloo_kv_store.h"
 #endif  // __linux__
+#include "xla/pjrt/cpu/mpi_collectives.h"
 
 #include "xla/pjrt/cpu/cpu_client.h"
 #include "xla/pjrt/pjrt_api.h"
@@ -546,6 +547,28 @@ static void Init(py::module_& m) {
       },
       py::arg("distributed_client"), py::arg("hostname") = std::nullopt,
       py::arg("interface") = std::nullopt);
+
+  m.def(
+      "make_mpi_collectives",
+      [](std::shared_ptr<DistributedRuntimeClient> distributed_client)
+          -> std::shared_ptr<xla::cpu::CollectivesInterface> {
+        std::string key_prefix = "cpu:";
+        auto kv_get =
+            [distributed_client, key_prefix](
+                std::string_view k,
+                absl::Duration timeout) -> xla::StatusOr<std::string> {
+          return distributed_client->BlockingKeyValueGet(
+              absl::StrCat(key_prefix, k), timeout);
+        };
+        auto kv_put = [distributed_client, key_prefix](
+                          std::string_view k,
+                          std::string_view v) -> xla::Status {
+          return distributed_client->KeyValueSet(absl::StrCat(key_prefix, k),
+                                                 v);
+        };
+        return std::make_shared<cpu::MpiCollectives>();
+      },
+      py::arg("distributed_client"));
 
   m.def(
       "get_tfrt_cpu_client",
