@@ -133,7 +133,7 @@ static absl::Status ReductionKindToMpiOp(ReductionKind reduction_kind,
   return absl::OkStatus();
 }
 
-static absl::Status mpi_error_to_absl_status(int error) {
+static absl::Status MpiErrorToAbslStatus(int error) {
   if (error != MPI_SUCCESS) {
     char error_str[MPI_MAX_ERROR_STRING];
     int len;
@@ -167,7 +167,7 @@ absl::Status MpiCollectivesCommunicator::AllReduce(
   MPI_Datatype type;
   TF_RETURN_IF_ERROR(PrimitiveTypeToMpiType(element_type, type));
   TF_RETURN_IF_ERROR(ReductionKindToMpiOp(reduction_kind, type, op));
-  return mpi_error_to_absl_status(
+  return MpiErrorToAbslStatus(
       MPI_Allreduce(input_buffer, output_buffer, num_elements, type, op, comm));
 }
 
@@ -188,7 +188,7 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     } else {
       VLOG(1) << "recv at " << rank << " from " << *source_rank;
       requests.emplace_back();
-      TF_RETURN_IF_ERROR(mpi_error_to_absl_status(
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag, comm,
                     &requests.back())));
     }
@@ -200,7 +200,7 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     if (target != rank) {
       VLOG(1) << "send from " << rank << " to " << target;
       requests.emplace_back();
-      TF_RETURN_IF_ERROR(mpi_error_to_absl_status(
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Isend(input_buffer, num_bytes, MPI_BYTE, target, tag, comm,
                     &requests.back())));
     }
@@ -208,7 +208,7 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
 
   for (auto& request : requests) {
     TF_RETURN_IF_ERROR(
-        mpi_error_to_absl_status(MPI_Wait(&request, MPI_STATUS_IGNORE)));
+        MpiErrorToAbslStatus(MPI_Wait(&request, MPI_STATUS_IGNORE)));
   }
 
   return absl::OkStatus();
@@ -230,7 +230,7 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
   for (int i = 1; i < size; i++) {
     int send_rank = (rank + i) % size;
     int recv_rank = (rank + size - i) % size;
-    TF_RETURN_IF_ERROR(mpi_error_to_absl_status(
+    TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
         MPI_Sendrecv(input_buffers[send_rank], chunk_bytes, MPI_BYTE, send_rank,
                      tag, output_buffers[recv_rank], chunk_bytes, MPI_BYTE,
                      recv_rank, tag, comm, MPI_STATUS_IGNORE)));
@@ -244,7 +244,7 @@ absl::Status MpiCollectivesCommunicator::AllGather(const RendezvousKey& key,
                                                    const void* input_buffer,
                                                    void* output_buffer,
                                                    absl::Duration timeout) {
-  return mpi_error_to_absl_status(MPI_Allgather(input_buffer, chunk_bytes,
+  return MpiErrorToAbslStatus(MPI_Allgather(input_buffer, chunk_bytes,
                                                 MPI_BYTE, output_buffer,
                                                 chunk_bytes, MPI_BYTE, comm));
 }
@@ -260,7 +260,7 @@ absl::Status MpiCollectivesCommunicator::ReduceScatter(
   MPI_Datatype type;
   TF_RETURN_IF_ERROR(PrimitiveTypeToMpiType(element_type, type));
   TF_RETURN_IF_ERROR(ReductionKindToMpiOp(reduction_kind, type, op));
-  return mpi_error_to_absl_status(MPI_Reduce_scatter(
+  return MpiErrorToAbslStatus(MPI_Reduce_scatter(
       input_buffer, output_buffer, recvcounts.data(), type, op, comm));
 }
 
@@ -296,8 +296,8 @@ MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
     return context;
   }
 
-  // we and that there is only one device per mpi rank
-  // and that the mpi rank and global device id are the same,
+  // we assume that there is only one device per mpi rank
+  // and that the mpi rank and global device id are the identical.
   std::vector<int> global_ranks(global_devices.size());
   std::transform(global_devices.begin(), global_devices.end(),
                  global_ranks.begin(),
