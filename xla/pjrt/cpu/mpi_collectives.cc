@@ -279,6 +279,7 @@ MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
 
   // we assume that there is only one device per mpi rank
   // and that the mpi rank and global device id are the identical.
+  TF_RET_CHECK(mpi_rank == global_devices[rank].value());
   std::vector<int> global_ranks(global_devices.size());
   std::transform(global_devices.begin(), global_devices.end(),
                  global_ranks.begin(),
