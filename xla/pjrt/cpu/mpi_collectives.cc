@@ -97,7 +97,6 @@ absl::StatusOr<MPI_Op> ReductionKindToMpiOp(ReductionKind reduction_kind,
     case ReductionKind::PRODUCT:
       return MPI_PROD;
     case ReductionKind::MIN:
-      // TODO implement custom complex max/min reduction
       if (!MpiTypeIsComplex(type)) {
         return MPI_MIN;
       } else {
@@ -105,7 +104,6 @@ absl::StatusOr<MPI_Op> ReductionKindToMpiOp(ReductionKind reduction_kind,
             "MIN reduction not supported for complex types");
       }
     case ReductionKind::MAX:
-      // TODO implement custom complex max/min reduction
       if (!MpiTypeIsComplex(type)) {
         return MPI_MAX;
       } else {
@@ -134,14 +132,16 @@ MpiCollectivesCommunicator::MpiCollectivesCommunicator(
 
   MPI_Comm_group(MPI_COMM_WORLD, &group_world);
   MPI_Group_incl(group_world, global_ranks.size(), global_ranks.data(), &group);
-  MPI_Comm_create(MPI_COMM_WORLD, group, &comm);
+  MPI_Comm_create(MPI_COMM_WORLD, group, &comm_);
+  MPI_Comm_rank(comm_, &mpi_rank_);
+  MPI_Comm_size(comm_, &mpi_size_);
 
   MPI_Group_free(&group_world);
   MPI_Group_free(&group);
 }
 
 MpiCollectivesCommunicator::~MpiCollectivesCommunicator() {
-  MPI_Comm_free(&comm);
+  MPI_Comm_free(&comm_);
 };
 
 absl::Status MpiCollectivesCommunicator::AllReduce(
@@ -151,7 +151,7 @@ absl::Status MpiCollectivesCommunicator::AllReduce(
   TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
   TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
   return MpiErrorToAbslStatus(
-      MPI_Allreduce(input_buffer, output_buffer, num_elements, type, op, comm));
+      MPI_Allreduce(input_buffer, output_buffer, num_elements, type, op, comm_));
 }
 
 absl::Status MpiCollectivesCommunicator::CollectivePermute(
@@ -159,9 +159,8 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     absl::Span<int const> target_ranks, const void* input_buffer,
     void* output_buffer, absl::Duration timeout) {
   int tag = 0;  // TODO come up with better tags.
-  int rank, size;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &size);
+
+  const int rank = mpi_rank_;
 
   std::vector<MPI_Request> requests;
 
@@ -172,7 +171,7 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
       VLOG(1) << "recv at " << rank << " from " << *source_rank;
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-          MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag, comm,
+          MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag, comm_,
                     &requests.back())));
     }
   } else {
@@ -185,7 +184,7 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
       requests.emplace_back();
       TF_RETURN_IF_ERROR(
           MpiErrorToAbslStatus(MPI_Isend(input_buffer, num_bytes, MPI_BYTE,
-                                         target, tag, comm, &requests.back())));
+                                         target, tag, comm_, &requests.back())));
     }
   }
 
@@ -202,9 +201,8 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
     absl::Span<const void* const> input_buffers,
     absl::Span<void* const> output_buffers, absl::Duration timeout) {
   int tag = 0;  // TODO use better tags.
-  int rank, size;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &size);
+  const int rank = mpi_rank_;
+  const int size = mpi_size_;
   TF_RET_CHECK(size == input_buffers.size());
   TF_RET_CHECK(size == output_buffers.size());
 
@@ -216,7 +214,7 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
     TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
         MPI_Sendrecv(input_buffers[send_rank], chunk_bytes, MPI_BYTE, send_rank,
                      tag, output_buffers[recv_rank], chunk_bytes, MPI_BYTE,
-                     recv_rank, tag, comm, MPI_STATUS_IGNORE)));
+                     recv_rank, tag, comm_, MPI_STATUS_IGNORE)));
   }
 
   return absl::OkStatus();
@@ -229,28 +227,27 @@ absl::Status MpiCollectivesCommunicator::AllGather(const RendezvousKey& key,
                                                    absl::Duration timeout) {
   return MpiErrorToAbslStatus(MPI_Allgather(input_buffer, chunk_bytes, MPI_BYTE,
                                             output_buffer, chunk_bytes,
-                                            MPI_BYTE, comm));
+                                            MPI_BYTE, comm_));
 }
 
 absl::Status MpiCollectivesCommunicator::ReduceScatter(
     const RendezvousKey& key, ReductionKind reduction_kind,
     PrimitiveType element_type, size_t chunk_elems, const void* input_buffer,
     void* output_buffer, absl::Duration timeout) {
-  int size;
-  MPI_Comm_size(comm, &size);
+  const int size = mpi_size_;
   std::vector<int> recvcounts(size, chunk_elems);
   TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
   TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
   return MpiErrorToAbslStatus(MPI_Reduce_scatter(
-      input_buffer, output_buffer, recvcounts.data(), type, op, comm));
+      input_buffer, output_buffer, recvcounts.data(), type, op, comm_));
 }
 
 MpiCollectives::MpiCollectives() {
   int provided;
   MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &provided);
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-  VLOG(1) << "MPI rank=" << mpi_rank << " size=" << mpi_size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_world_rank_);
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size_);
+  VLOG(1) << "MPI rank=" << mpi_world_rank_ << " size=" << mpi_world_size_;
 }
 
 MpiCollectives::~MpiCollectives() {
@@ -279,7 +276,7 @@ MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
 
   // we assume that there is only one device per mpi rank
   // and that the mpi rank and global device id are the identical.
-  TF_RET_CHECK(mpi_rank == global_devices[rank].value());
+  TF_RET_CHECK(mpi_world_rank_ == global_devices[rank].value());
   std::vector<int> global_ranks(global_devices.size());
   std::transform(global_devices.begin(), global_devices.end(),
                  global_ranks.begin(),

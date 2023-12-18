@@ -64,7 +64,9 @@ class MpiCollectivesCommunicator : public CollectivesCommunicator {
                              absl::Duration timeout) override;
 
  private:
-  MPI_Comm comm;
+  MPI_Comm comm_;
+  int mpi_rank_;
+  int mpi_size_;
 };
 
 class MpiCollectives : public CollectivesInterface {
@@ -76,8 +78,8 @@ class MpiCollectives : public CollectivesInterface {
       absl::Span<GlobalDeviceId const> devices, int rank) override;
 
  private:
-  int mpi_rank;
-  int mpi_size;
+  int mpi_world_rank_;
+  int mpi_world_size_;
   absl::flat_hash_map<std::tuple<std::vector<GlobalDeviceId>, int>,
                       std::shared_ptr<MpiCollectivesCommunicator>>
       contexts_;
