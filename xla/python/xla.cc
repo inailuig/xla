@@ -553,7 +553,32 @@ static void Init(py::module_& m) {
       []() -> std::shared_ptr<xla::cpu::CollectivesInterface> {
         return std::make_shared<cpu::MpiCollectives>();
       });
+  m.def("get_tfrt_cpu_client_mpi", []() -> std::shared_ptr<PyClient> {
+    py::gil_scoped_release gil_release;
 
+    std::shared_ptr<cpu::MpiCollectives> collectives =
+        std::make_shared<cpu::MpiCollectives>();
+    const int rank = collectives->getRank();
+    const int size = collectives->getSize();
+
+    const int max_inflight_computations_per_device = 32;
+    std::vector<std::unique_ptr<TfrtCpuDevice>> devices;
+
+    for (int process_index = 0; process_index < size; ++process_index) {
+      const int id = process_index;
+      const int local_hardware_id = 0;
+      devices.push_back(std::make_unique<TfrtCpuDevice>(
+          id, process_index, local_hardware_id,
+          max_inflight_computations_per_device));
+    }
+
+    const std::size_t num_threads = 1;
+    std::unique_ptr<PjRtClient> client = std::make_unique<TfrtCpuClient>(
+        rank, std::move(devices), std::move(collectives), num_threads);
+
+    return std::make_shared<PyClient>(
+        ifrt::PjRtClient::Create(std::move(client)));
+  });
   m.def(
       "get_tfrt_cpu_client",
       [](bool asynchronous,

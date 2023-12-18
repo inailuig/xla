@@ -77,6 +77,9 @@ class MpiCollectives : public CollectivesInterface {
   absl::StatusOr<std::shared_ptr<CollectivesCommunicator>> GetCommunicator(
       absl::Span<GlobalDeviceId const> global_devices, int rank) override;
 
+ int getRank() const {return mpi_world_rank_;}
+ int getSize() const {return mpi_world_size_;}
+
  private:
   absl::Status ExchangeGlobalDeviceIds(
       absl::Span<GlobalDeviceId const> global_devices, int rank);
