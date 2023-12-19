@@ -200,6 +200,10 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
     const RendezvousKey& key, size_t chunk_bytes,
     absl::Span<const void* const> input_buffers,
     absl::Span<void* const> output_buffers, absl::Duration timeout) {
+
+  // We can't use MPI_Alltoall directly because it assumes that the inputs and
+  // outputs are contiguous. Therefore here we implement it using MPI_Sendrecv.
+
   int tag = 0;  // TODO use better tags.
   const int rank = mpi_rank_;
   const int size = mpi_size_;
