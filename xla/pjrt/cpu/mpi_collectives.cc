@@ -292,12 +292,6 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   int64_t gid = static_cast<int64_t>(global_devices.at(rank).value());
   char dummy_ack_message;
 
-  // Vector to keep track of which rank each element in recv_requests_gid
-  // corresponds to.
-  // Need to store it in a separate conainer because we need a contiguous array
-  // of requests for MPI.
-  std::vector<int> recv_requests_gid_source;
-
   std::vector<MPI_Request> recv_requests_gid;
   // the following contains also a (unused) entry for this rank itself,
   // to facilitate indexing with the source/target rank
@@ -312,7 +306,6 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   // all mpi ranks
   for (int source = 0; source < mpi_world_size_; source++) {
     if (source != mpi_world_rank_) {
-      recv_requests_gid_source.push_back(source);
       recv_requests_gid.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Irecv(&recv_buffer_gid[source], 1, MPI_INT64_T, source, tag_gid,
@@ -354,13 +347,13 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   // device ids has been received
   while (unknown_global_device_ids.size() > 0) {
     int indx;
+    MPI_Status status;
     TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
         MPI_Waitany(recv_requests_gid.size(), recv_requests_gid.data(), &indx,
-                    MPI_STATUS_IGNORE)));
-    int rank_recv_from = recv_requests_gid_source.at(indx);
+                    &status)));
+    int rank_recv_from = status.MPI_SOURCE;
 
     recv_requests_gid.erase(recv_requests_gid.begin() + indx);
-    recv_requests_gid_source.erase(recv_requests_gid_source.begin() + indx);
 
     GlobalDeviceId id(recv_buffer_gid.at(rank_recv_from));
 
