@@ -353,32 +353,30 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   // Parse gid messages until the mpi rank of all unknown participating global
   // device ids has been received
   while (unknown_global_device_ids.size() > 0) {
-    int indx, flag;
+    int indx;
     TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-        MPI_Testany(recv_requests_gid.size(), recv_requests_gid.data(), &indx,
-                    &flag, MPI_STATUS_IGNORE)));
-    if (flag) {
-      int rank_recv_from = recv_requests_gid_source.at(indx);
+        MPI_Waitany(recv_requests_gid.size(), recv_requests_gid.data(), &indx,
+                    MPI_STATUS_IGNORE)));
+    int rank_recv_from = recv_requests_gid_source.at(indx);
 
-      recv_requests_gid.erase(recv_requests_gid.begin() + indx);
-      recv_requests_gid_source.erase(recv_requests_gid_source.begin() + indx);
+    recv_requests_gid.erase(recv_requests_gid.begin() + indx);
+    recv_requests_gid_source.erase(recv_requests_gid_source.begin() + indx);
 
-      GlobalDeviceId id(recv_buffer_gid.at(rank_recv_from));
+    GlobalDeviceId id(recv_buffer_gid.at(rank_recv_from));
 
-      VLOG(1) << "MPI rank " << mpi_world_rank_ << " received global device id "
-              << recv_buffer_gid.at(rank_recv_from) << " from rank "
-              << rank_recv_from;
+    VLOG(1) << "MPI rank " << mpi_world_rank_ << " received global device id "
+            << recv_buffer_gid.at(rank_recv_from) << " from rank "
+            << rank_recv_from;
 
-      auto it = unknown_global_device_ids.find(id);
-      if (it != unknown_global_device_ids.end()) {
-        unknown_global_device_ids.erase(it);
-        // Send ack to the rank the previously unknown gid has been received
-        // from
-        send_requests_ack.emplace_back();
-        TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-            MPI_Isend(&dummy_ack_message, 1, MPI_CHAR, rank_recv_from, tag_ack,
-                      MPI_COMM_WORLD, &send_requests_ack.back())));
-      }
+    auto it = unknown_global_device_ids.find(id);
+    if (it != unknown_global_device_ids.end()) {
+      unknown_global_device_ids.erase(it);
+      // Send ack to the rank the previously unknown gid has been received
+      // from
+      send_requests_ack.emplace_back();
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Isend(&dummy_ack_message, 1, MPI_CHAR, rank_recv_from, tag_ack,
+                    MPI_COMM_WORLD, &send_requests_ack.back())));
       // Note that if there are several communicators (on disjunct sets of mpi
       // ranks) being requested at the same time, messages from mpi ranks not
       // participating in this one might arrive. The received rank<->gid mapping
