@@ -296,6 +296,7 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   // the following contains also a (unused) entry for this rank itself,
   // to facilitate indexing with the source/target rank
   std::vector<MPI_Request> recv_requests_ack(mpi_world_size_);
+  recv_requests_ack.at(mpi_world_rank_) = MPI_REQUEST_NULL;
   std::vector<MPI_Request> send_requests_gid;
   std::vector<MPI_Request> send_requests_ack;
 
@@ -404,9 +405,7 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
     }
   }
 
-  // Remove unused request for this rank itself
-  recv_requests_ack.erase(recv_requests_ack.begin() + mpi_world_rank_);
-  // and cancel all remaining requests
+  // Cancel all remaining requests
   for (auto requests :
        {send_requests_gid, recv_requests_ack, recv_requests_gid}) {
     for (auto& request : requests) {
