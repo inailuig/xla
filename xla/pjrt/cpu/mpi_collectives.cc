@@ -77,7 +77,7 @@ absl::StatusOr<MPI_Datatype> PrimitiveTypeToMpiType(
     case C128:
       return MPI_C_DOUBLE_COMPLEX;
     default:
-      // TODO implement reduction for the unsupported types
+      // For implementing the reduction of unsupported types
       // see e.g. https://stackoverflow.com/a/29643391
       return absl::InvalidArgumentError(absl::StrCat(
           "Unsupported primitive type for reduction: ",
@@ -127,11 +127,16 @@ static absl::Status MpiErrorToAbslStatus(int error) {
 }
 
 MpiCollectivesCommunicator::MpiCollectivesCommunicator(
-    std::vector<int> global_ranks) {
+    std::vector<int> mpi_world_ranks) {
   MPI_Group group_world, group;
 
+  // Create a MPI communicator conatining the ranks from mpi_world_ranks.
+  // It's MPI ranks respect the order of mpi_world_ranks, which means that the
+  // MPI communicator rank and MpiCollectivesCommunicator rank coincide.
+
   MPI_Comm_group(MPI_COMM_WORLD, &group_world);
-  MPI_Group_incl(group_world, global_ranks.size(), global_ranks.data(), &group);
+  MPI_Group_incl(group_world, mpi_world_ranks.size(), mpi_world_ranks.data(),
+                 &group);
   MPI_Comm_create(MPI_COMM_WORLD, group, &comm_);
   MPI_Comm_rank(comm_, &mpi_rank_);
   MPI_Comm_size(comm_, &mpi_size_);
@@ -150,8 +155,8 @@ absl::Status MpiCollectivesCommunicator::AllReduce(
     void* output_buffer, absl::Duration timeout) {
   TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
   TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
-  return MpiErrorToAbslStatus(
-      MPI_Allreduce(input_buffer, output_buffer, num_elements, type, op, comm_));
+  return MpiErrorToAbslStatus(MPI_Allreduce(input_buffer, output_buffer,
+                                            num_elements, type, op, comm_));
 }
 
 absl::Status MpiCollectivesCommunicator::CollectivePermute(
@@ -171,8 +176,8 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
       VLOG(1) << "recv at " << rank << " from " << *source_rank;
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
-          MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag, comm_,
-                    &requests.back())));
+          MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag,
+                    comm_, &requests.back())));
     }
   } else {
     std::memset(output_buffer, 0, num_bytes);
@@ -182,9 +187,9 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     if (target != rank) {
       VLOG(1) << "send from " << rank << " to " << target;
       requests.emplace_back();
-      TF_RETURN_IF_ERROR(
-          MpiErrorToAbslStatus(MPI_Isend(input_buffer, num_bytes, MPI_BYTE,
-                                         target, tag, comm_, &requests.back())));
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Isend(input_buffer, num_bytes, MPI_BYTE, target, tag, comm_,
+                    &requests.back())));
     }
   }
 
@@ -200,7 +205,6 @@ absl::Status MpiCollectivesCommunicator::AllToAll(
     const RendezvousKey& key, size_t chunk_bytes,
     absl::Span<const void* const> input_buffers,
     absl::Span<void* const> output_buffers, absl::Duration timeout) {
-
   // We can't use MPI_Alltoall directly because it assumes that the inputs and
   // outputs are contiguous. Therefore here we implement it using MPI_Sendrecv.
 
@@ -259,6 +263,174 @@ MpiCollectives::~MpiCollectives() {
   MPI_Finalize();
 }
 
+absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
+    absl::Span<GlobalDeviceId const> global_devices, int rank) {
+  // Build the mapping from global device id to mpi world rank by exchanging
+  // messages between all ranks owning one of global_devices.
+  // The argument rank here is the rank of this process inside global_devices
+  // (not the mpi world rank).
+
+  // set our own
+  auto r = global_device_id_to_mpi_world_rank_.insert(
+      std::make_pair(global_devices.at(rank), mpi_world_rank_));
+  if (!r.second) {
+    auto it = r.first;
+    if (it->second != mpi_world_rank_) {
+      return absl::UnknownError(absl::StrCat(
+          "Inconsistent global device id ", global_devices.at(rank).value(),
+          " on rank ", mpi_world_rank_, ". It should be on rank ", it->second,
+          "."));
+    }
+  }
+
+  // TODO come up with better tags.
+  int tag_gid = 1;
+  int tag_ack = 2;
+
+  // cast to int64 for sending over MPI
+  int64_t gid = static_cast<int64_t>(global_devices.at(rank).value());
+  char dummy_ack_message;
+
+  // Vector to keep track of which rank each element in recv_requests_gid
+  // corresponds to.
+  // Need to store it in a separate conainer because we need a contiguous array
+  // of requests for MPI.
+  std::vector<int> recv_requests_gid_source;
+
+  std::vector<MPI_Request> recv_requests_gid;
+  // the following contains also a (unused) entry for this rank itself,
+  // to facilitate indexing with the source/target rank
+  std::vector<MPI_Request> recv_requests_ack(mpi_world_size_);
+  std::vector<MPI_Request> send_requests_gid;
+  std::vector<MPI_Request> send_requests_ack;
+
+  std::vector<char> recv_buffer_ack(mpi_world_size_);
+  std::vector<int64_t> recv_buffer_gid(mpi_world_size_);
+
+  // Speculative receive requests for the global device id and ack message from
+  // all mpi ranks
+  for (int source = 0; source < mpi_world_size_; source++) {
+    if (source != mpi_world_rank_) {
+      recv_requests_gid_source.push_back(source);
+      recv_requests_gid.emplace_back();
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Irecv(&recv_buffer_gid[source], 1, MPI_INT64_T, source, tag_gid,
+                    MPI_COMM_WORLD, &recv_requests_gid.back())));
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Irecv(&recv_buffer_ack[source], 1, MPI_CHAR, source, tag_ack,
+                    MPI_COMM_WORLD, &recv_requests_ack[source])));
+    }
+  }
+
+  // Send the global_device_id of this mpi rank to all other ranks
+  for (int target = 0; target < mpi_world_size_; target++) {
+    if (target != mpi_world_rank_) {
+      send_requests_gid.emplace_back();
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Isend(&gid, 1, MPI_INT64_T, target, tag_gid, MPI_COMM_WORLD,
+                    &send_requests_gid.back())));
+    }
+  }
+
+  // Send ack to the participating mpi ranks the global device id is already
+  // known of and assemble a set of global device ids for which the mpi rank is
+  // not yet known.
+  absl::flat_hash_set<GlobalDeviceId> unknown_global_device_ids;
+  for (GlobalDeviceId id : global_devices) {
+    auto it = global_device_id_to_mpi_world_rank_.find(id);
+    if (it != global_device_id_to_mpi_world_rank_.end()) {
+      int target = it->second;
+      send_requests_ack.emplace_back();
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Isend(&dummy_ack_message, 1, MPI_CHAR, target, tag_ack,
+                    MPI_COMM_WORLD, &send_requests_ack.back())));
+    } else {
+      unknown_global_device_ids.insert(id);
+    }
+  }
+
+  // Parse gid messages until the mpi rank of all unknown participating global
+  // device ids has been received
+  while (unknown_global_device_ids.size() > 0) {
+    int indx, flag;
+    TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+        MPI_Testany(recv_requests_gid.size(), recv_requests_gid.data(), &indx,
+                    &flag, MPI_STATUS_IGNORE)));
+    if (flag) {
+      int rank_recv_from = recv_requests_gid_source.at(indx);
+
+      recv_requests_gid.erase(recv_requests_gid.begin() + indx);
+      recv_requests_gid_source.erase(recv_requests_gid_source.begin() + indx);
+
+      GlobalDeviceId id(recv_buffer_gid.at(rank_recv_from));
+
+      VLOG(1) << "MPI rank " << mpi_world_rank_ << " received global device id "
+              << recv_buffer_gid.at(rank_recv_from) << " from rank "
+              << rank_recv_from;
+
+      auto it = unknown_global_device_ids.find(id);
+      if (it != unknown_global_device_ids.end()) {
+        unknown_global_device_ids.erase(it);
+        // Send ack to the rank the previously unknown gid has been received
+        // from
+        send_requests_ack.emplace_back();
+        TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+            MPI_Isend(&dummy_ack_message, 1, MPI_CHAR, rank_recv_from, tag_ack,
+                      MPI_COMM_WORLD, &send_requests_ack.back())));
+      }
+      // Note that if there are several communicators (on disjunct sets of mpi
+      // ranks) being requested at the same time, messages from mpi ranks not
+      // participating in this one might arrive. The received rank<->gid mapping
+      // in global_device_id_to_mpi_world_rank_ is still set for future use but
+      // no ack is sent back.
+      auto r = global_device_id_to_mpi_world_rank_.insert(
+          std::make_pair(id, rank_recv_from));
+      if (!r.second) {
+        auto it = r.first;
+        if (it->second != rank_recv_from) {
+          return absl::UnknownError(
+              absl::StrCat("MPI: rank ", mpi_world_rank_,
+                           " received inconsistent global device id ",
+                           id.value(), " from rank ", rank_recv_from,
+                           ". It should be on rank ", it->second, "."));
+        }
+      }
+    }
+  }
+
+  // Wait until all acks sent have been recieved
+  TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(MPI_Waitall(
+      send_requests_ack.size(), send_requests_ack.data(), MPI_STATUS_IGNORE)));
+
+  // 6. Wait until ack has been received from all involved ranks (except this
+  // rank)
+  for (GlobalDeviceId id : global_devices) {
+    int target = global_device_id_to_mpi_world_rank_.at(id);
+    if (target != mpi_world_rank_) {
+      TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
+          MPI_Wait(&recv_requests_ack.at(target), MPI_STATUS_IGNORE)));
+    }
+  }
+
+  // Remove unused request for this rank itself
+  recv_requests_ack.erase(recv_requests_ack.begin() + mpi_world_rank_);
+  // and cancel all remaining requests
+  for (auto requests :
+       {send_requests_gid, recv_requests_ack, recv_requests_gid}) {
+    for (auto& request : requests) {
+      int flag;
+      TF_RETURN_IF_ERROR(
+          MpiErrorToAbslStatus(MPI_Test(&request, &flag, MPI_STATUS_IGNORE)));
+      if (!flag) {
+        TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(MPI_Cancel(&request)));
+        TF_RETURN_IF_ERROR(
+            MpiErrorToAbslStatus(MPI_Wait(&request, MPI_STATUS_IGNORE)));
+      }
+    }
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<std::shared_ptr<CollectivesCommunicator>>
 MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
                                 int rank) {
@@ -278,15 +450,20 @@ MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
     return context;
   }
 
-  // we assume that there is only one device per mpi rank
-  // and that the mpi rank and global device id are the identical.
-  TF_RET_CHECK(mpi_world_rank_ == global_devices[rank].value());
-  std::vector<int> global_ranks(global_devices.size());
-  std::transform(global_devices.begin(), global_devices.end(),
-                 global_ranks.begin(),
-                 [](GlobalDeviceId i) { return static_cast<int>(i.value()); });
+  TF_RETURN_IF_ERROR(ExchangeGlobalDeviceIds(global_devices, rank));
+
+  std::vector<int> mpi_world_ranks;
+  for (GlobalDeviceId id : global_devices) {
+    auto it = global_device_id_to_mpi_world_rank_.find(id);
+    if (it != global_device_id_to_mpi_world_rank_.end()) {
+      mpi_world_ranks.push_back(it->second);
+    } else {
+      return absl::UnknownError(absl::StrCat(
+          "MPI: Unknown mpi rank for GlobalDeviceId ", id.value()));
+    }
+  }
   context =
-      std::make_shared<MpiCollectivesCommunicator>(std::move(global_ranks));
+      std::make_shared<MpiCollectivesCommunicator>(std::move(mpi_world_ranks));
   return context;
 }
 
