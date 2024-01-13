@@ -78,15 +78,15 @@ class MpiCollectives : public CollectivesInterface {
       absl::Span<GlobalDeviceId const> global_devices, int rank) override;
 
  private:
+  absl::Status ExchangeGlobalDeviceIds(
+      absl::Span<GlobalDeviceId const> global_devices, int rank);
+
   int mpi_world_rank_;
   int mpi_world_size_;
   absl::flat_hash_map<std::tuple<std::vector<GlobalDeviceId>, int>,
                       std::shared_ptr<MpiCollectivesCommunicator>>
       contexts_;
   absl::flat_hash_map<GlobalDeviceId, int> global_device_id_to_mpi_world_rank_;
-
-  absl::Status ExchangeGlobalDeviceIds(
-      absl::Span<GlobalDeviceId const> global_devices, int rank);
 };
 
 }  // namespace xla::cpu
