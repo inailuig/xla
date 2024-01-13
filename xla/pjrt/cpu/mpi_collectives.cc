@@ -402,7 +402,7 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
   TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(MPI_Waitall(
       send_requests_ack.size(), send_requests_ack.data(), MPI_STATUS_IGNORE)));
 
-  // 6. Wait until ack has been received from all involved ranks (except this
+  // Wait until ack has been received from all involved ranks (except this
   // rank)
   for (GlobalDeviceId id : global_devices) {
     int target = global_device_id_to_mpi_world_rank_.at(id);
