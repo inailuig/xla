@@ -371,22 +371,22 @@ absl::Status MpiCollectives::ExchangeGlobalDeviceIds(
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Isend(&dummy_ack_message, 1, MPI_CHAR, rank_recv_from, tag_ack,
                     MPI_COMM_WORLD, &send_requests_ack.back())));
-      // Note that if there are several communicators (on disjunct sets of mpi
-      // ranks) being requested at the same time, messages from mpi ranks not
-      // participating in this one might arrive. The received rank<->gid mapping
-      // in global_device_id_to_mpi_world_rank_ is still set for future use but
-      // no ack is sent back.
-      auto r = global_device_id_to_mpi_world_rank_.insert(
-          std::make_pair(id, rank_recv_from));
-      if (!r.second) {
-        auto it = r.first;
-        if (it->second != rank_recv_from) {
-          return absl::UnknownError(
-              absl::StrCat("MPI: rank ", mpi_world_rank_,
-                           " received inconsistent global device id ",
-                           id.value(), " from rank ", rank_recv_from,
-                           ". It should be on rank ", it->second, "."));
-        }
+    }
+    // Note that if there are several communicators (on disjunct sets of mpi
+    // ranks) being requested at the same time, messages from mpi ranks not
+    // participating in this one might arrive. The received rank<->gid mapping
+    // in global_device_id_to_mpi_world_rank_ is still set for future use but
+    // no ack is sent back.
+    auto r = global_device_id_to_mpi_world_rank_.insert(
+        std::make_pair(id, rank_recv_from));
+    if (!r.second) {
+      auto it = r.first;
+      if (it->second != rank_recv_from) {
+        return absl::UnknownError(
+            absl::StrCat("MPI: rank ", mpi_world_rank_,
+                         " received inconsistent global device id ",
+                         id.value(), " from rank ", rank_recv_from,
+                         ". It should be on rank ", it->second, "."));
       }
     }
   }
