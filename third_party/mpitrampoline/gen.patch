@@ -1,7 +1,18 @@
 diff --git a/gen/gen_decl.py b/gen/gen_decl.py
-index 1005b95..bcb8ceb 100755
+index 1005b95..696b4e0 100755
 --- a/gen/gen_decl.py
 +++ b/gen/gen_decl.py
+@@ -9,8 +9,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "mpiabi"))
+ 
+ from mpi_constants import constants
+ from mpi_functions import functions
+-from mpi_constants_fortran import constants_fortran
+-from mpi_functions_fortran import functions_fortran
++# from mpi_constants_fortran import constants_fortran
++# from mpi_functions_fortran import functions_fortran
+ 
+ support_profiling = True
+ have_weak_symbols = False
 @@ -24,7 +24,7 @@ def wrap(line):
      lines.append(line)
      return "\n".join(lines)
@@ -39,10 +50,19 @@ index 1005b95..bcb8ceb 100755
      file.write("\n")
      for (tp, nm, args) in functions_fortran:
 diff --git a/gen/gen_defn.py b/gen/gen_defn.py
-index bf31f35..fccbedc 100755
+index bf31f35..318222e 100755
 --- a/gen/gen_defn.py
 +++ b/gen/gen_defn.py
-@@ -16,7 +16,7 @@ support_profiling = True
+@@ -9,14 +9,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "mpiabi"))
+ 
+ from mpi_constants import constants
+ from mpi_functions import functions
+-from mpi_constants_fortran import constants_fortran
+-from mpi_functions_fortran import functions_fortran
++# from mpi_constants_fortran import constants_fortran
++# from mpi_functions_fortran import functions_fortran
+ 
+ support_profiling = True
  have_weak_symbols = False
  replace_sentinels = False
  
@@ -79,10 +99,19 @@ index bf31f35..fccbedc 100755
      file.write("\n")
      for (tp, nm, args) in functions_fortran:
 diff --git a/gen/gen_init.py b/gen/gen_init.py
-index 4939261..c433d92 100755
+index 4939261..0e52822 100755
 --- a/gen/gen_init.py
 +++ b/gen/gen_init.py
-@@ -16,7 +16,7 @@ support_profiling = True
+@@ -9,14 +9,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "mpiabi"))
+ 
+ from mpi_constants import constants
+ from mpi_functions import functions
+-from mpi_constants_fortran import constants_fortran
+-from mpi_functions_fortran import functions_fortran
++# from mpi_constants_fortran import constants_fortran
++# from mpi_functions_fortran import functions_fortran
+ 
+ support_profiling = True
  have_weak_symbols = False
  replace_sentinels = False
  
