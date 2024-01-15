@@ -1134,12 +1134,12 @@ cc_library(
             "//xla/pjrt/cpu:gloo_kv_store",
             "@gloo//:transport_tcp",
         ],
-        }) + select({
-            # mpitrampoline does not build on windows
-            "@tsl//tsl:windows": [],
-            "//conditions:default": [
-                "//xla/pjrt/cpu:mpi_collectives",
-            ],
+    }) + select({
+        # mpitrampoline does not build on windows
+        "@tsl//tsl:windows": [],
+        "//conditions:default": [
+            "//xla/pjrt/cpu:mpi_collectives",
+        ],
     }) + select({
         ":gpu_enabled": [
             "//xla/pjrt/gpu:se_gpu_pjrt_client",
