@@ -557,8 +557,8 @@ static void Init(py::module_& m) {
 #ifndef _WIN32
         return std::make_shared<cpu::MpiCollectives>();
 #else  // _WIN32
-      throw xla::XlaRuntimeError(
-          "make_mpi_collectives is not implemented for Windows");
+        throw xla::XlaRuntimeError(
+            "make_mpi_collectives is not implemented for Windows");
 #endif // _WIN32
       });
 
