@@ -46,48 +46,63 @@ expand_template(
     template = "src/mpi_defaults.h.in",
 )
 
-genrule(
-    name = "run_gen_decl",
+py_binary(
+    name='gen_decl',
     srcs = [
         "gen/gen_decl.py",
         "mpiabi/mpi_constants.py",
         "mpiabi/mpi_functions.py",
     ],
+)
+
+genrule(
+    name = "decl",
+    tools = [':gen_decl'],
     outs = [
         "include/mpi_decl_constants_c.h",
         "include/mpi_decl_functions_c.h",
     ],
-    cmd = "$(location gen/gen_decl.py) $(location include/mpi_decl_constants_c.h) \
+    cmd = "$(location :gen_decl) $(location include/mpi_decl_constants_c.h) \
            $(location include/mpi_decl_functions_c.h)",
 )
 
-genrule(
-    name = "run_gen_defn",
+py_binary(
+    name='gen_defn',
     srcs = [
         "gen/gen_defn.py",
         "mpiabi/mpi_constants.py",
         "mpiabi/mpi_functions.py",
     ],
+)
+
+genrule(
+    name = "defn",
+    tools = [':gen_defn'],
     outs = [
         "include/mpi_defn_constants_c.h",
         "include/mpi_defn_functions_c.h",
     ],
-    cmd = "$(location gen/gen_defn.py) $(location include/mpi_defn_constants_c.h) \
+    cmd = "$(location :gen_defn) $(location include/mpi_defn_constants_c.h) \
            $(location include/mpi_defn_functions_c.h)",
 )
 
-genrule(
-    name = "run_gen_init",
+py_binary(
+    name='gen_init',
     srcs = [
         "gen/gen_init.py",
         "mpiabi/mpi_constants.py",
         "mpiabi/mpi_functions.py",
     ],
+)
+
+genrule(
+    name = "init",
+    tools = [':gen_init'],
     outs = [
         "include/mpi_init_constants_c.h",
         "include/mpi_init_functions_c.h",
     ],
-    cmd = "$(location gen/gen_init.py) $(location include/mpi_init_constants_c.h) \
+    cmd = "$(location :gen_init) $(location include/mpi_init_constants_c.h) \
            $(location include/mpi_init_functions_c.h)",
 )
 
