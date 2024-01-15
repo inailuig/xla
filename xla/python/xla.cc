@@ -68,7 +68,10 @@ limitations under the License.
 #include "xla/pjrt/cpu/gloo_collectives.h"
 #include "xla/pjrt/cpu/gloo_kv_store.h"
 #endif  // __linux__
+
+#ifndef _WIN32
 #include "xla/pjrt/cpu/mpi_collectives.h"
+#endif // _WIN32
 
 #include "xla/pjrt/cpu/cpu_client.h"
 #include "xla/pjrt/pjrt_api.h"
@@ -551,7 +554,12 @@ static void Init(py::module_& m) {
   m.def(
       "make_mpi_collectives",
       []() -> std::shared_ptr<xla::cpu::CollectivesInterface> {
+#ifndef _WIN32
         return std::make_shared<cpu::MpiCollectives>();
+#else  // _WIN32
+      throw xla::XlaRuntimeError(
+          "make_mpi_collectives is not implemented for Windows");
+#endif // _WIN32
       });
 
   m.def(
