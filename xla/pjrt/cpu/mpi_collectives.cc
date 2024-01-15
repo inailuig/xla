@@ -131,8 +131,8 @@ MpiCollectivesCommunicator::MpiCollectivesCommunicator(
     std::vector<int> mpi_world_ranks) {
   MPI_Group group_world, group;
 
-  // Create a MPI communicator conatining the ranks from mpi_world_ranks.
-  // It's MPI ranks respect the order of mpi_world_ranks, which means that the
+  // Create an MPI communicator containing the ranks from mpi_world_ranks.
+  // Its MPI ranks respect the order of mpi_world_ranks, which means that the
   // MPI communicator rank and MpiCollectivesCommunicator rank coincide.
 
   MPI_Comm_group(MPI_COMM_WORLD, &group_world);
