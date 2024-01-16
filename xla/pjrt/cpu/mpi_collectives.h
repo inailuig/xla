@@ -38,7 +38,7 @@ namespace xla::cpu {
 
 class MpiCollectivesCommunicator : public CollectivesCommunicator {
  public:
-  explicit MpiCollectivesCommunicator(std::vector<int> mpi_world_ranks);
+  explicit MpiCollectivesCommunicator(int color, int key);
   ~MpiCollectivesCommunicator() override;
 
   absl::Status AllReduce(const RendezvousKey& key, ReductionKind reduction_kind,
@@ -86,7 +86,6 @@ class MpiCollectives : public CollectivesInterface {
   absl::flat_hash_map<std::tuple<std::vector<GlobalDeviceId>, int>,
                       std::shared_ptr<MpiCollectivesCommunicator>>
       contexts_;
-  absl::flat_hash_map<GlobalDeviceId, int> global_device_id_to_mpi_world_rank_;
 };
 
 }  // namespace xla::cpu
