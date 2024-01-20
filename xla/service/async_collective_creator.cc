@@ -37,6 +37,7 @@ struct ReplacedAsync {
 };
 
 StatusOr<ReplacedAsync> CreateAsyncAllReduce(HloInstruction* instruction) {
+  std::cout << "CreateAsyncAllReduce" << std::endl;
   HloComputation* computation = instruction->parent();
   auto* ar = Cast<HloAllReduceInstruction>(instruction);
   HloInstruction* start =
@@ -113,6 +114,7 @@ StatusOr<ReplacedAsync> CreateAsyncCollectivePermute(
 
 StatusOr<ReplacedAsync> CreateAsyncStartDone(
     HloInstruction* instruction, absl::Span<const Shape> context_shapes) {
+      std::cout << "CreateAsyncStartDone" << std::endl;
   HloComputation* computation = instruction->parent();
   TF_ASSIGN_OR_RETURN(
       HloInstruction * done,
@@ -128,6 +130,7 @@ StatusOr<ReplacedAsync> CreateAsyncStartDone(
 StatusOr<bool> AsyncCollectiveCreator::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  std::cout << "AsyncCollectiveCreator::Run" << std::endl;
   bool changed = false;
   for (HloComputation* computation :
        module->MakeNonfusionComputations(execution_threads)) {
@@ -160,9 +163,9 @@ StatusOr<bool> AsyncCollectiveCreator::Run(
     for (HloInstruction* instruction : supported_collectives) {
       StatusOr<ReplacedAsync> async_pair;
       switch (instruction->opcode()) {
-        case HloOpcode::kAllReduce:
-          async_pair = CreateAsyncAllReduce(instruction);
-          break;
+        // case HloOpcode::kAllReduce:
+        //   async_pair = CreateAsyncAllReduce(instruction);
+        //   break;
         case HloOpcode::kAllGather:
           async_pair = CreateAsyncAllGather(instruction);
           break;
@@ -170,6 +173,7 @@ StatusOr<bool> AsyncCollectiveCreator::Run(
           async_pair = CreateAsyncCollectivePermute(
               instruction, config_.get_context_shapes(instruction));
           break;
+        case HloOpcode::kAllReduce:
         case HloOpcode::kAllToAll:
         case HloOpcode::kReduceScatter:
           async_pair = CreateAsyncStartDone(

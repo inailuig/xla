@@ -1135,6 +1135,7 @@ Status IrEmitter::HandleFft(HloInstruction* fft) {
 }
 
 Status IrEmitter::HandleAllReduceSingleReplica(HloInstruction* crs) {
+
   // When there is a single replica, a cross replica sum is the identity
   // function, and the buffer assignment expects a copy.
   //
@@ -1193,7 +1194,14 @@ static bool DataTypeIsSupportedByReduceScatter(PrimitiveType datatype) {
   }
 }
 
-Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
+Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_async) {
+
+  HloInstruction* crs_orig = crs;
+  if (is_async){
+   crs_orig = crs->async_wrapped_instruction();
+  }
+
+  std::cout << "HandleAllReduceMultipleReplica ir_emitter.cc" << std::endl;
   CHECK_GE(crs->operand_count(), 1);
   PrimitiveType datatype = crs->operand(0)->shape().element_type();
   TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
@@ -1203,12 +1211,12 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
                          primitive_util::LowercasePrimitiveTypeName(datatype));
   }
 
-  if (!MatchReductionComputation(crs->to_apply()).has_value()) {
+  if (!MatchReductionComputation(crs_orig->to_apply()).has_value()) {
     return Unimplemented("AllReduce for computation '%s' is not supported",
                          crs->to_apply()->ToString());
   }
 
-  std::string replica_groups = ReplicaGroupsToString(crs->replica_groups());
+  std::string replica_groups = ReplicaGroupsToString(crs_orig->replica_groups());
   int32_t replica_groups_size = replica_groups.size();
   llvm::Value* replica_groups_v = b_.CreateGlobalStringPtr(replica_groups);
 
@@ -1216,6 +1224,7 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
   std::vector<llvm::Value*> input_buffer_ptrs;
   std::vector<llvm::Value*> output_buffer_ptrs;
   if (is_tuple) {
+    std::cout << "is_tuple" << std::endl;
     CHECK(crs->shape().IsTuple());
 
     for (int64_t i = 0; i < crs->operand_count(); i++) {
@@ -1229,11 +1238,22 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
       input_buffer_ptrs.push_back(GetEmittedValueFor(op));
     }
   } else {
+    std::cout << "NOT is_tuple1" << std::endl;
     Shape shape = crs->operand(0)->shape();
-    TF_ASSIGN_OR_RETURN(BufferAllocation::Slice input_slice,
-                        assignment_.GetUniqueSlice(crs->operand(0), {}));
-    TF_ASSIGN_OR_RETURN(BufferAllocation::Slice output_slice,
-                        assignment_.GetUniqueSlice(crs, {}));
+    if (is_async){
+      std::cout<<"+++++++++ShapeUtil::HumanStringWithLayout crs "<< ShapeUtil::HumanStringWithLayout(crs->shape()) <<std::endl;
+      std::cout<<"+++++++++ShapeUtil::HumanStringWithLayout crs_origi "<< ShapeUtil::HumanStringWithLayout(crs_orig->shape()) <<std::endl;
+      std::cout<<"+++++++++ShapeUtil::HumanStringWithLayout crs operand "<< ShapeUtil::HumanStringWithLayout(crs->operand(0)->shape()) <<std::endl;
+      std::cout<<"+++++++++ShapeUtil::HumanStringWithLayout crs_origi operand "<< ShapeUtil::HumanStringWithLayout(crs_orig->operand(0)->shape()) <<std::endl;
+  }
+
+    BufferAllocation::Slice output_slice;
+    TF_ASSIGN_OR_RETURN(BufferAllocation::Slice input_slice, assignment_.GetUniqueSlice(crs->operand(0), {}));
+    if (is_async){
+      TF_ASSIGN_OR_RETURN(output_slice, assignment_.GetUniqueSlice(crs, {1}));
+    }else{
+      TF_ASSIGN_OR_RETURN(output_slice, assignment_.GetUniqueSlice(crs, {}));
+    }
     input_buffer_ptrs.push_back(EmitBufferPointer(input_slice, shape));
     output_buffer_ptrs.push_back(EmitBufferPointer(output_slice, shape));
   }
@@ -1246,27 +1266,31 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
   int32_t shape_length;
   TF_ASSIGN_OR_RETURN(llvm::Value * shape_ptr,
                       llvm_ir::EncodeSelfDescribingShapeConstant(
-                          crs->shape(), &shape_length, &b_));
+                          crs_orig->shape(), &shape_length, &b_));
 
-  bool use_global_device_ids =
-      Cast<HloAllReduceInstruction>(crs)->use_global_device_ids();
+  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs_orig)->use_global_device_ids();
+
+  std::cout << "num_buffers " << crs->operand_count() << " vs " << crs_orig->operand_count() << std::endl;
+
+
+  std::cout << "emitting runtime::kAllReduceSymbolName" << std::endl;
   EmitCallToFunc(
-      runtime::kAllReduceSymbolName,
+      is_async ? runtime::kAllReduceStartSymbolName : runtime::kAllReduceSymbolName,
       {/*run_options=*/GetExecutableRunOptionsArgument(),
        /*replica_groups=*/replica_groups_v,
        /*replica_groups_size=*/b_.getInt32(replica_groups_size),
 
        /*channel_id_present=*/
-       b_.getInt32(static_cast<int32_t>(crs->channel_id().has_value())),
+       b_.getInt32(static_cast<int32_t>(crs_orig->channel_id().has_value())),
        /*use_global_device_ids=*/
        b_.getInt32(static_cast<int32_t>(use_global_device_ids)),
        /*op_id=*/
-       b_.getInt64(crs->channel_id().has_value()
-                       ? *crs->channel_id()
-                       : crs->GetModule()->unique_id()),
+       b_.getInt64(crs_orig->channel_id().has_value()
+                       ? *crs_orig->channel_id()
+                       : crs_orig->GetModule()->unique_id()),
        /*reduction_kind=*/
        b_.getInt32(
-           static_cast<int32_t>(*MatchReductionComputation(crs->to_apply()))),
+           static_cast<int32_t>(*MatchReductionComputation(crs_orig->to_apply()))),
        /*shape_ptr=*/shape_ptr,
        /*shape_length=*/b_.getInt32(shape_length),
        /*num_buffers=*/b_.getInt32(crs->operand_count()),
@@ -1278,12 +1302,172 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs) {
 }
 
 Status IrEmitter::HandleAllReduce(HloInstruction* crs) {
+  std::cout << "HandleAllReduce (ir_emitter.cc)" << std::endl;
   if (hlo_module_config_.replica_count() == 1 &&
       hlo_module_config_.num_partitions() == 1) {
     return HandleAllReduceSingleReplica(crs);
   }
-  return HandleAllReduceMultipleReplica(crs);
+  return HandleAllReduceMultipleReplica(crs, false);
 }
+
+
+Status IrEmitter::HandleAllReduceStart(HloInstruction* crs) {
+  std::cout << "Fake HandleAllReduceStart (ir_emitter.cc)" << std::endl;
+  if (hlo_module_config_.replica_count() == 1 &&
+      hlo_module_config_.num_partitions() == 1) {
+    return HandleAllReduceSingleReplica(crs);
+  }
+  return HandleAllReduceMultipleReplica(crs, true);
+}
+
+
+Status IrEmitter::HandleAsyncStart(HloInstruction* crs) {
+  std::cout << "Fake HandleAsyncStart (ir_emitter.cc) " << crs->ToString()<< std::endl;
+  std::cout << "operand_count() " << crs->operand_count()<<std::endl;
+  std::cout << "Fake HandleAsyncStart async_wrapped_instruction " << crs->async_wrapped_instruction()->ToString()<< std::endl;
+  if (hlo_module_config_.replica_count() == 1 &&
+      hlo_module_config_.num_partitions() == 1) {
+    return OkStatus();
+  }
+
+  switch (crs->async_wrapped_opcode()){
+      case HloOpcode::kAllToAll:
+        std::cout << "HloOpcode::kReduceScatter" << std::endl;
+        break;
+      case HloOpcode::kAllReduce:
+        std::cout << "HloOpcode::kAllReduce" << std::endl;
+        return HandleAllReduceMultipleReplica(crs, true);
+        break;
+      default:
+        std::cout << "default" << std::endl;
+  }
+
+  return OkStatus();
+}
+
+
+
+
+Status IrEmitter::HandleAsyncDoneMultipleReplica(HloInstruction* crs) {
+  std::cout << "HandleAsyncDoneMultipleReplica ir_emitter.cc" << std::endl;
+
+  HloInstruction* crs_orig = crs->async_wrapped_instruction();
+
+  CHECK_GE(crs->operand_count(), 1);
+  TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
+
+  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs_orig)->use_global_device_ids();
+  std::cout << "emitting runtime::kAllReduceSymbolName" << std::endl;
+
+  std::string replica_groups = ReplicaGroupsToString(crs_orig->replica_groups());
+  int32_t replica_groups_size = replica_groups.size();
+  llvm::Value* replica_groups_v = b_.CreateGlobalStringPtr(replica_groups);
+  std::cout << "AAAAB" << std::endl;
+  EmitCallToFunc(
+      runtime::kAsyncDoneSymbolName,
+      {/*run_options=*/GetExecutableRunOptionsArgument(),
+       /*replica_groups=*/replica_groups_v,
+       /*replica_groups_size=*/b_.getInt32(replica_groups_size),
+       /*channel_id_present=*/
+       b_.getInt32(static_cast<int32_t>(crs_orig->channel_id().has_value())),
+       /*use_global_device_ids=*/
+       b_.getInt32(static_cast<int32_t>(use_global_device_ids)),
+       /*op_id=*/
+       b_.getInt64(crs_orig->channel_id().has_value()
+                       ? *crs_orig->channel_id()
+                       : crs_orig->GetModule()->unique_id())},
+      b_.getVoidTy());
+      std::cout << "ZZZZB" << std::endl;
+  return OkStatus();
+}
+
+
+Status IrEmitter::HandleAsyncDone(HloInstruction* crs) {
+  std::cout << "Fake HandleAsyncDone (ir_emitter.cc) "<< crs->ToString() << std::endl;
+  std::cout << "operand_count() " << crs->operand_count()<<std::endl;
+  std::cout << "Fake HandleAsyncDone async_wrapped_instruction " << crs->async_wrapped_instruction()->ToString()<< std::endl;
+
+  Shape shape = crs->operand(0)->shape();
+  // const auto& shape_parameters = shape.parameters();
+  // std::cout << "shape_parameters.size() " << shape_parameters.size() << std::endl;
+
+  if (hlo_module_config_.replica_count() == 1 &&
+      hlo_module_config_.num_partitions() == 1) {
+    return OkStatus();
+  }
+
+  switch (crs->async_wrapped_opcode()){
+      case HloOpcode::kAllToAll:
+        std::cout << "HloOpcode::kReduceScatter" << std::endl;
+        break;
+      case HloOpcode::kAllReduce:
+        std::cout << "HloOpcode::kAllReduce" << std::endl;
+        //return HandleAsyncDoneMultipleReplica(crs->async_wrapped_instruction());
+        return HandleAsyncDoneMultipleReplica(crs);
+        break;
+      default:
+        std::cout << "default" << std::endl;
+  }
+
+  return OkStatus();
+}
+
+
+
+
+
+Status IrEmitter::HandleAllReduceDoneMultipleReplica(HloInstruction* crs) {
+  std::cout << "HandleAllReduceDoneMultipleReplica ir_emitter.cc" << std::endl;
+  CHECK_GE(crs->operand_count(), 1);
+  TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
+
+  bool use_global_device_ids = true;
+      //Cast<HloAllReduceInstruction>(crs)->use_global_device_ids();
+  std::cout << "emitting runtime::kAllReduceSymbolName" << std::endl;
+
+  std::string replica_groups = ReplicaGroupsToString(crs->replica_groups());
+  int32_t replica_groups_size = replica_groups.size();
+  llvm::Value* replica_groups_v = b_.CreateGlobalStringPtr(replica_groups);
+
+  EmitCallToFunc(
+      runtime::kAllReduceDoneSymbolName,
+      {/*run_options=*/GetExecutableRunOptionsArgument(),
+       /*replica_groups=*/replica_groups_v,
+       /*replica_groups_size=*/b_.getInt32(replica_groups_size),
+
+       /*channel_id_present=*/
+       b_.getInt32(static_cast<int32_t>(crs->channel_id().has_value())),
+       /*use_global_device_ids=*/
+       b_.getInt32(static_cast<int32_t>(use_global_device_ids)),
+       /*op_id=*/
+       b_.getInt64(crs->channel_id().has_value()
+                       ? *crs->channel_id()
+                       : crs->GetModule()->unique_id())},
+      b_.getVoidTy());
+
+  return OkStatus();
+}
+
+
+
+
+Status IrEmitter::HandleAllReduceDone(HloInstruction* crs) {
+  std::cout << "Fake HandleAllReduceDone (ir_emitter.cc)" << std::endl;
+  if (hlo_module_config_.replica_count() == 1 &&
+      hlo_module_config_.num_partitions() == 1) {
+    //return HandleAllReduceDoneSingleReplica(crs);
+    // TODO actually do sth
+    return OkStatus();
+  }
+  return HandleAllReduceDoneMultipleReplica(crs);
+  // TODO actually do sth
+  return OkStatus();
+}
+
+
+
+
+
 
 Status IrEmitter::HandleReduceScatter(HloInstruction* rs) {
   CHECK_EQ(rs->operand_count(), 1);
@@ -3605,9 +3789,14 @@ Status IrEmitter::EmitTargetElementLoop(
 
 Status IrEmitter::EmitMemcpy(const HloInstruction& source,
                              const HloInstruction& destination) {
+
+  int64_t source_size = ByteSizeOf(source.shape());
+  std::cout << "source_size " << source_size << std::endl;
+  std::cout << "dst_size " << ByteSizeOf(destination.shape()) <<std::endl;
+
   llvm::Value* source_value = GetEmittedValueFor(&source);
   llvm::Value* destination_value = GetEmittedValueFor(&destination);
-  int64_t source_size = ByteSizeOf(source.shape());
+
   // TODO(b/63762267): Be more aggressive about specifying alignment.
   MemCpy(destination_value, /*DstAlign=*/llvm::Align(1), source_value,
          /*SrcAlign=*/llvm::Align(1), source_size);
@@ -3641,6 +3830,7 @@ Status IrEmitter::DefaultAction(HloInstruction* hlo) {
     };
   }
   CpuElementalIrEmitter elemental_emitter(hlo_module_config_, this, module_);
+  std::cout << "IrEmitter::DefaultAction " << HloOpcodeString(hlo->opcode())  << std::endl;
   return EmitTargetElementLoop(
       hlo, elemental_emitter.MakeElementGenerator(hlo, operand_to_generator));
 }

@@ -261,6 +261,7 @@ cc_library(
         "//xla/service:algebraic_simplifier",
         "//xla/service:all_reduce_promotion",
         "//xla/service:all_to_all_decomposer",
+        "//xla/service:async_collective_creator",
         "//xla/service:batch_dot_simplification",
         "//xla/service:batchnorm_expander",
         "//xla/service:bitcast_dtypes_expander",

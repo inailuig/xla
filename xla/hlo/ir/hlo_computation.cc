@@ -924,6 +924,16 @@ HloInstruction* HloComputation::CreateCallInstruction(
   return call_instruction;
 }
 
+
+// /* static */ std::unique_ptr<HloInstruction> HloInstruction::CreateAsyncStart(
+//     const Shape& shape, absl::Span<HloInstruction* const> operands,
+//     HloComputation* async_computation, std::optional<int64_t> async_group_id,
+//     absl::string_view async_execution_thread) {
+//   return std::make_unique<HloAsyncInstruction>(
+//       HloOpcode::kAsyncStart, shape, operands, async_computation,
+//       async_group_id, async_execution_thread);
+// }
+
 StatusOr<HloInstruction*> HloComputation::CreateAsyncInstructions(
     HloInstruction* instruction, absl::Span<const Shape> context_shapes,
     absl::string_view async_execution_thread, bool replace,
@@ -946,9 +956,14 @@ StatusOr<HloInstruction*> HloComputation::CreateAsyncInstructions(
       parent_->AddEmbeddedComputation(builder.Build(root));
   std::vector<Shape> start_shapes = {
       ShapeUtil::MakeTupleShape(parameter_shapes), root->shape()};
+      std::cout << "----parameter_shapes" << ShapeUtil::HumanStringWithLayout(start_shapes[0]) << std::endl;
+      std::cout << "----root shape" << ShapeUtil::HumanStringWithLayout(start_shapes[1]) << std::endl;
   for (const Shape& context_shape : context_shapes) {
+    std::cout << "- adding context shape" << std::endl;
     start_shapes.push_back(context_shape);
   }
+  std::cout << "----start_shapes" << ShapeUtil::HumanStringWithLayout(ShapeUtil::MakeTupleShape(start_shapes)) << std::endl;
+
   HloInstruction* async_start = AddInstruction(HloInstruction::CreateAsyncStart(
       ShapeUtil::MakeTupleShape(start_shapes), instruction->operands(),
       async_computation, /*async_group_id=*/std::nullopt,

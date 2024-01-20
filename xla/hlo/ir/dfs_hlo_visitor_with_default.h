@@ -105,12 +105,14 @@ class DfsHloVisitorWithDefaultBase
     return DefaultAction(crs);
   }
   Status HandleAllReduce(HloInstructionPtr crs) override {
+    std::cout << "DfsHloVisitorWithDefaultBase HandleAllReduce" << std::endl;
     return DefaultAction(crs);
   }
   Status HandleReduceScatter(HloInstructionPtr hlo) override {
     return DefaultAction(hlo);
   }
   Status HandleAllReduceStart(HloInstructionPtr hlo) override {
+    std::cout << "DfsHloVisitorWithDefaultBase HandleAllReduceStart" << std::endl;
     return DefaultAction(hlo);
   }
   Status HandleAllReduceDone(HloInstructionPtr hlo) override {
