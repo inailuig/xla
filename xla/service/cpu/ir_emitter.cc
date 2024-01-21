@@ -1195,11 +1195,6 @@ static bool DataTypeIsSupportedByReduceScatter(PrimitiveType datatype) {
 
 Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_async) {
 
-  HloInstruction* crs_orig = crs;
-  if (is_async){
-   crs_orig = crs->async_wrapped_instruction();
-  }
-
   CHECK_GE(crs->operand_count(), 1);
   PrimitiveType datatype = crs->operand(0)->shape().element_type();
   TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
@@ -1209,12 +1204,12 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_as
                          primitive_util::LowercasePrimitiveTypeName(datatype));
   }
 
-  if (!MatchReductionComputation(crs_orig->to_apply()).has_value()) {
+  if (!MatchReductionComputation(crs->to_apply()).has_value()) {
     return Unimplemented("AllReduce for computation '%s' is not supported",
                          crs->to_apply()->ToString());
   }
 
-  std::string replica_groups = ReplicaGroupsToString(crs_orig->replica_groups());
+  std::string replica_groups = ReplicaGroupsToString(crs->replica_groups());
   int32_t replica_groups_size = replica_groups.size();
   llvm::Value* replica_groups_v = b_.CreateGlobalStringPtr(replica_groups);
 
@@ -1237,12 +1232,7 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_as
   } else {
     Shape shape = crs->operand(0)->shape();
     TF_ASSIGN_OR_RETURN(BufferAllocation::Slice input_slice, assignment_.GetUniqueSlice(crs->operand(0), {}));
-    BufferAllocation::Slice output_slice;
-    if (is_async){
-      TF_ASSIGN_OR_RETURN(output_slice, assignment_.GetUniqueSlice(crs, {1}));
-    }else{
-      TF_ASSIGN_OR_RETURN(output_slice, assignment_.GetUniqueSlice(crs, {}));
-    }
+    TF_ASSIGN_OR_RETURN(BufferAllocation::Slice output_slice, assignment_.GetUniqueSlice(crs, {}));
     input_buffer_ptrs.push_back(EmitBufferPointer(input_slice, shape));
     output_buffer_ptrs.push_back(EmitBufferPointer(output_slice, shape));
   }
@@ -1255,9 +1245,9 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_as
   int32_t shape_length;
   TF_ASSIGN_OR_RETURN(llvm::Value * shape_ptr,
                       llvm_ir::EncodeSelfDescribingShapeConstant(
-                          crs_orig->shape(), &shape_length, &b_));
+                          crs->shape(), &shape_length, &b_));
 
-  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs_orig)->use_global_device_ids();
+  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs)->use_global_device_ids();
 
   EmitCallToFunc(
       runtime::kAllReduceSymbolName,
@@ -1265,16 +1255,16 @@ Status IrEmitter::HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_as
        /*replica_groups=*/replica_groups_v,
        /*replica_groups_size=*/b_.getInt32(replica_groups_size),
        /*channel_id_present=*/
-       b_.getInt32(static_cast<int32_t>(crs_orig->channel_id().has_value())),
+       b_.getInt32(static_cast<int32_t>(crs->channel_id().has_value())),
        /*use_global_device_ids=*/
        b_.getInt32(static_cast<int32_t>(use_global_device_ids)),
        /*op_id=*/
-       b_.getInt64(crs_orig->channel_id().has_value()
-                       ? *crs_orig->channel_id()
-                       : crs_orig->GetModule()->unique_id()),
+       b_.getInt64(crs->channel_id().has_value()
+                       ? *crs->channel_id()
+                       : crs->GetModule()->unique_id()),
        /*reduction_kind=*/
        b_.getInt32(
-           static_cast<int32_t>(*MatchReductionComputation(crs_orig->to_apply()))),
+           static_cast<int32_t>(*MatchReductionComputation(crs->to_apply()))),
        /*is_async=*/is_async ? b_.getTrue() : b_.getFalse(),
        /*shape_ptr=*/shape_ptr,
        /*shape_length=*/b_.getInt32(shape_length),
@@ -1302,7 +1292,7 @@ Status IrEmitter::HandleAsyncStart(HloInstruction* crs) {
 
   switch (crs->async_wrapped_opcode()){
       case HloOpcode::kAllReduce:
-        return HandleAllReduceMultipleReplica(crs, true);
+        return HandleAllReduceMultipleReplica(crs->async_wrapped_instruction(), true);
         break;
       default:
         return absl::UnknownError("async for ... not implemented");
@@ -1316,14 +1306,11 @@ Status IrEmitter::HandleAsyncStart(HloInstruction* crs) {
 
 Status IrEmitter::HandleAsyncDoneMultipleReplica(HloInstruction* crs) {
 
-  HloInstruction* crs_orig = crs->async_wrapped_instruction();
+  //TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
 
-  CHECK_GE(crs->operand_count(), 1);
-  TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
+  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs)->use_global_device_ids();
 
-  bool use_global_device_ids = Cast<HloAllReduceInstruction>(crs_orig)->use_global_device_ids();
-
-  std::string replica_groups = ReplicaGroupsToString(crs_orig->replica_groups());
+  std::string replica_groups = ReplicaGroupsToString(crs->replica_groups());
   int32_t replica_groups_size = replica_groups.size();
   llvm::Value* replica_groups_v = b_.CreateGlobalStringPtr(replica_groups);
   EmitCallToFunc(
@@ -1332,13 +1319,13 @@ Status IrEmitter::HandleAsyncDoneMultipleReplica(HloInstruction* crs) {
        /*replica_groups=*/replica_groups_v,
        /*replica_groups_size=*/b_.getInt32(replica_groups_size),
        /*channel_id_present=*/
-       b_.getInt32(static_cast<int32_t>(crs_orig->channel_id().has_value())),
+       b_.getInt32(static_cast<int32_t>(crs->channel_id().has_value())),
        /*use_global_device_ids=*/
        b_.getInt32(static_cast<int32_t>(use_global_device_ids)),
        /*op_id=*/
-       b_.getInt64(crs_orig->channel_id().has_value()
-                       ? *crs_orig->channel_id()
-                       : crs_orig->GetModule()->unique_id())},
+       b_.getInt64(crs->channel_id().has_value()
+                       ? *crs->channel_id()
+                       : crs->GetModule()->unique_id())},
       b_.getVoidTy());
   return OkStatus();
 }
@@ -1351,7 +1338,8 @@ Status IrEmitter::HandleAsyncDone(HloInstruction* crs) {
       hlo_module_config_.num_partitions() == 1) {
     return OkStatus();
   }
-  return HandleAsyncDoneMultipleReplica(crs);
+  TF_RETURN_IF_ERROR(EmitTargetAddressForOp(crs));
+  return HandleAsyncDoneMultipleReplica(crs->async_wrapped_instruction());
   // switch (crs->async_wrapped_opcode()){
   //     case HloOpcode::kAllReduce:
   //       break;
