@@ -116,6 +116,7 @@ limitations under the License.
 #include "xla/runtime/jit_executable.h"
 #include "xla/service/algebraic_simplifier.h"
 #include "xla/service/all_reduce_promotion.h"
+#include "xla/service/async_collective_creator.h"
 #include "xla/service/all_to_all_decomposer.h"
 #include "xla/service/batch_dot_simplification.h"
 #include "xla/service/batchnorm_expander.h"
@@ -866,6 +867,16 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
     pipeline.AddPass<SubByteNormalization>(
         SubByteNormalization::SET_ELEMENT_SIZE);
   }
+
+  const DebugOptions& debug_options = module->config().debug_options();
+  // TODO move it further up the pipeline?
+  AsyncCollectiveCreator::CollectiveCreatorConfig config;
+  config.convert_all_reduce = debug_options.xla_cpu_enable_async_all_reduce()? HloPredicateTrue : HloPredicateFalse;
+  // config.convert_collective_permute = HloPredicateTrue;
+  // config.convert_all_gather = HloPredicateTrue;
+  // config.convert_reduce_scatter = HloPredicateTrue;
+  // config.convert_all_to_all = HloPredicateTrue;
+  pipeline.AddPass<AsyncCollectiveCreator>(std::move(config));
 
   return pipeline.Run(module).status();
 }

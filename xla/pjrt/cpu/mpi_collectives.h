@@ -44,7 +44,7 @@ class MpiCollectivesCommunicator : public CollectivesCommunicator {
   absl::Status AllReduce(const RendezvousKey& key, ReductionKind reduction_kind,
                          PrimitiveType element_type, size_t num_elements,
                          const void* input_buffer, void* output_buffer,
-                         absl::Duration timeout) override;
+                         absl::Duration timeout, bool is_async) override;
   absl::Status CollectivePermute(const RendezvousKey& key, size_t num_bytes,
                                  std::optional<int> source_rank,
                                  absl::Span<int const> target_ranks,
@@ -63,10 +63,13 @@ class MpiCollectivesCommunicator : public CollectivesCommunicator {
                              const void* input_buffer, void* output_buffer,
                              absl::Duration timeout) override;
 
+  absl::Status WaitAll(const RendezvousKey& key) override;
+
  private:
   MPI_Comm comm_;
   int mpi_rank_;
   int mpi_size_;
+  absl::flat_hash_map<std::int64_t, std::vector<MPI_Request>> async_requests_;
 };
 
 class MpiCollectives : public CollectivesInterface {

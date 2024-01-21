@@ -208,7 +208,8 @@ absl::Status XlaAllReduce::operator()(
       run_options, replica_groups_str.c_str(),
       static_cast<int32_t>(replica_groups_str.size()),
       static_cast<int32_t>(channel_id), use_global_device_ids, op_id,
-      reduction_kind, shape_str.c_str(), static_cast<int32_t>(shape_str.size()),
+      reduction_kind, /* is_async= */ false, shape_str.c_str(),
+      static_cast<int32_t>(shape_str.size()),
       static_cast<int32_t>(num_buffers), input_buffers.data(),
       output_buffers.data());
 

@@ -1004,8 +1004,10 @@ void BuildXlaCompilerSubmodule(py::module& m) {
                     &DebugOptions::set_xla_gpu_enable_async_all_to_all)
       .def_property("xla_gpu_enable_async_reduce_scatter",
                     &DebugOptions::xla_gpu_enable_async_reduce_scatter,
-                    &DebugOptions::set_xla_gpu_enable_async_reduce_scatter);
-
+                    &DebugOptions::set_xla_gpu_enable_async_reduce_scatter)
+      .def_property("xla_cpu_enable_async_all_reduce",
+                    &DebugOptions::xla_cpu_enable_async_all_reduce,
+                    &DebugOptions::set_xla_cpu_enable_async_all_reduce);
   py::class_<ExecutableBuildOptions>(m, "ExecutableBuildOptions")
       .def(py::init<>())
       .def("__repr__", &ExecutableBuildOptions::ToString)

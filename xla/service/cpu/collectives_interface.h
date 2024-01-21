@@ -40,7 +40,7 @@ class CollectivesCommunicator {
                                  PrimitiveType element_type,
                                  size_t num_elements, const void* input_buffer,
                                  void* output_buffer,
-                                 absl::Duration timeout) = 0;
+                                 absl::Duration timeout, bool is_async) = 0;
 
   // Performs a collective permute.
   // Arguments:
@@ -73,6 +73,10 @@ class CollectivesCommunicator {
       const RendezvousKey& key, ReductionKind reduction_kind,
       PrimitiveType element_type, size_t chunk_elems, const void* input_buffer,
       void* output_buffer, absl::Duration timeout) = 0;
+
+
+  virtual absl::Status WaitAll(const RendezvousKey& key) = 0;
+
 };
 
 class CollectivesInterface {

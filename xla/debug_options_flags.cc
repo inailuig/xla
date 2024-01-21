@@ -127,6 +127,8 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_enable_async_all_to_all(false);
   opts.set_xla_gpu_enable_async_reduce_scatter(false);
 
+  opts.set_xla_cpu_enable_async_all_reduce(false);
+
   opts.set_xla_gpu_enable_reassociation_for_converted_ar(true);
 
   opts.set_xla_cpu_enable_xprof_traceme(false);
@@ -893,6 +895,11 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       bool_setter_for(&DebugOptions::set_xla_gpu_enable_async_all_to_all),
       debug_options->xla_gpu_enable_async_all_to_all(),
       "Converts synchronous all-to-all ops into asynchronous."));
+    flag_list->push_back(tsl::Flag(
+      "xla_cpu_enable_async_all_reduce",
+      bool_setter_for(&DebugOptions::set_xla_cpu_enable_async_all_reduce),
+      debug_options->xla_cpu_enable_async_all_reduce(),
+      "Converts synchronous all-reduce ops into asynchronous."));
   flag_list->push_back(tsl::Flag(
       "xla_gpu_all_reduce_combine_threshold_bytes",
       int64_setter_for(

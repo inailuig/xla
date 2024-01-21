@@ -148,6 +148,9 @@ extern const char* const kTracingStartSymbolName =
 extern const char* const kTracingEndSymbolName = "__xla_cpu_runtime_TracingEnd";
 extern const char* const kXlaCpuRuntimeSymbolNamePrefix = "__xla_cpu_runtime_";
 extern const char* const kAllReduceSymbolName = "__xla_cpu_runtime_AllReduce";
+
+extern const char* const kAsyncDoneSymbolName = "__xla_cpu_runtime_AsyncDone";
+
 extern const char* const kAllGatherSymbolName = "__xla_cpu_runtime_AllGather";
 extern const char* const kReduceScatterSymbolName =
     "__xla_cpu_runtime_ReduceScatter";
@@ -439,7 +442,7 @@ void AllReduceImpl(const ExecutableRunOptions* run_options,
                    const void* replica_groups_str,
                    int32_t replica_groups_str_size, int32_t channel_id_present,
                    int32_t use_global_device_ids, int64_t op_id,
-                   int32_t reduction_kind, const void* shape_ptr,
+                   int32_t reduction_kind, bool is_async, const void* shape_ptr,
                    int32_t shape_length, int32_t num_buffers,
                    void** input_buffers, void** output_buffers) {
   GlobalDeviceId device(GetDeviceOrdinal(run_options));
@@ -470,8 +473,31 @@ void AllReduceImpl(const ExecutableRunOptions* run_options,
     TF_CHECK_OK(communicator->AllReduce(
         rendezvous_key, static_cast<ReductionKind>(reduction_kind),
         subshape.element_type(), ShapeUtil::ElementsIn(subshape),
-        input_buffers[i], output_buffers[i], DefaultCollectiveTimeout()));
+        input_buffers[i], output_buffers[i], DefaultCollectiveTimeout(), is_async));
   }
+}
+
+ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
+void DoneImpl(const ExecutableRunOptions* run_options,
+                   const void* replica_groups_str,
+                   int32_t replica_groups_str_size, int32_t channel_id_present,
+                   int32_t use_global_device_ids, int64_t op_id) {
+  GlobalDeviceId device(GetDeviceOrdinal(run_options));
+  std::string_view replica_groups_serialized(
+      static_cast<const char*>(replica_groups_str), replica_groups_str_size);
+  std::vector<ReplicaGroup> group =
+      ParseReplicaGroupsOnly(replica_groups_serialized).value();
+  RendezvousKey rendezvous_key =
+      GetRendezvousKey(run_options, device, group, channel_id_present,
+                       use_global_device_ids, op_id);
+  int rank = RankInGlobalDevices(rendezvous_key.global_devices, device).value();
+
+  CollectivesInterface* collectives = GetCollectivesImpl(run_options);
+
+  auto communicator =
+      collectives->GetCommunicator(rendezvous_key.global_devices, rank).value();
+
+  TF_CHECK_OK(communicator->WaitAll(rendezvous_key));
 }
 
 ABSL_ATTRIBUTE_NO_SANITIZE_MEMORY
@@ -618,14 +644,29 @@ void __xla_cpu_runtime_AllReduce(const xla::ExecutableRunOptions* run_options,
                                  int32_t replica_groups_str_size,
                                  int32_t channel_id_present,
                                  int32_t use_global_device_ids, int64_t op_id,
-                                 int32_t reduction_kind, const void* shape_ptr,
+                                 int32_t reduction_kind, bool is_async,
+                                 const void* shape_ptr,
                                  int32_t shape_length, int32_t num_buffers,
                                  void** input_buffers, void** output_buffers) {
   return xla::cpu::runtime::AllReduceImpl(
       run_options, replica_groups_str, replica_groups_str_size,
-      channel_id_present, use_global_device_ids, op_id, reduction_kind,
+      channel_id_present, use_global_device_ids, op_id, reduction_kind, is_async,
       shape_ptr, shape_length, num_buffers, input_buffers, output_buffers);
 }
+
+
+void __xla_cpu_runtime_AsyncDone(const xla::ExecutableRunOptions* run_options,
+                                 const void* replica_groups_str,
+                                 int32_t replica_groups_str_size,
+                                 int32_t channel_id_present,
+                                 int32_t use_global_device_ids, int64_t op_id) {
+
+  return xla::cpu::runtime::DoneImpl(
+      run_options, replica_groups_str, replica_groups_str_size,
+      channel_id_present, use_global_device_ids, op_id);
+}
+
+
 
 void __xla_cpu_runtime_ReplicaId(const xla::ExecutableRunOptions* run_options,
                                  void* output_buffer) {

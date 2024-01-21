@@ -160,9 +160,9 @@ StatusOr<bool> AsyncCollectiveCreator::Run(
     for (HloInstruction* instruction : supported_collectives) {
       StatusOr<ReplacedAsync> async_pair;
       switch (instruction->opcode()) {
-        case HloOpcode::kAllReduce:
-          async_pair = CreateAsyncAllReduce(instruction);
-          break;
+        // case HloOpcode::kAllReduce:
+        //   async_pair = CreateAsyncAllReduce(instruction);
+        //   break;
         case HloOpcode::kAllGather:
           async_pair = CreateAsyncAllGather(instruction);
           break;
@@ -170,6 +170,7 @@ StatusOr<bool> AsyncCollectiveCreator::Run(
           async_pair = CreateAsyncCollectivePermute(
               instruction, config_.get_context_shapes(instruction));
           break;
+        case HloOpcode::kAllReduce:
         case HloOpcode::kAllToAll:
         case HloOpcode::kReduceScatter:
           async_pair = CreateAsyncStartDone(
