@@ -78,11 +78,6 @@ extern const char* const kStatusIsSuccessSymbolName;
 extern const char* const kKeyValueSortSymbolName;
 extern const char* const kTopKF32SymbolName;
 extern const char* const kAllReduceSymbolName;
-
-extern const char* const kAllReduceStartSymbolName;
-extern const char* const kAllReduceDoneSymbolName;
-extern const char* const kAsyncDoneSymbolName;
-
 extern const char* const kCollectivePermuteSymbolName;
 extern const char* const kPartitionIdSymbolName;
 extern const char* const kReplicaIdSymbolName;
@@ -192,23 +187,6 @@ extern void __xla_cpu_runtime_AllReduce(
     int32_t channel_id_present, int32_t use_global_device_ids, int64_t op_id,
     int32_t reduction_kind, const void* shape_ptr, int32_t shape_length,
     int32_t num_buffers, void** input_buffers, void** output_buffers);
-
-extern void __xla_cpu_runtime_AllReduceStart(
-    const xla::ExecutableRunOptions* run_options,
-    const void* replica_groups_str, int32_t replica_groups_str_size,
-    int32_t channel_id_present, int32_t use_global_device_ids, int64_t op_id,
-    int32_t reduction_kind, const void* shape_ptr, int32_t shape_length,
-    int32_t num_buffers, void** input_buffers, void** output_buffers);
-
-extern void __xla_cpu_runtime_AllReduceDone(
-    const xla::ExecutableRunOptions* run_options,
-    const void* replica_groups_str, int32_t replica_groups_str_size,
-    int32_t channel_id_present, int32_t use_global_device_ids, int64_t op_id);
-
-extern void __xla_cpu_runtime_AsyncDone(
-    const xla::ExecutableRunOptions* run_options,
-    const void* replica_groups_str, int32_t replica_groups_str_size,
-    int32_t channel_id_present, int32_t use_global_device_ids, int64_t op_id);
 
 extern void __xla_cpu_runtime_CollectivePermute(
     const xla::ExecutableRunOptions* run_options, int32_t channel_id_present,

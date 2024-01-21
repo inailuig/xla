@@ -116,7 +116,6 @@ limitations under the License.
 #include "xla/runtime/jit_executable.h"
 #include "xla/service/algebraic_simplifier.h"
 #include "xla/service/all_reduce_promotion.h"
-#include "xla/service/async_collective_creator.h"
 #include "xla/service/all_to_all_decomposer.h"
 #include "xla/service/batch_dot_simplification.h"
 #include "xla/service/batchnorm_expander.h"
@@ -712,16 +711,6 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
   const std::pair<PrimitiveType, PrimitiveType> ar_promoted_types[] = {
       {BF16, F32}};
   pipeline.AddPass<AllReducePromotion>(ar_promoted_types);
-
-  // AsyncCollectiveCreator::CollectiveCreatorConfig config;
-  // config.convert_all_reduce = HloPredicateTrue;
-  // // config.convert_collective_permute = HloPredicateTrue;
-  // // config.convert_all_gather = HloPredicateTrue;
-  // // config.convert_reduce_scatter = HloPredicateTrue;
-  // // config.convert_all_to_all = HloPredicateTrue;
-  // std::cout << "pipeline.AddPass<AsyncCollectiveCreator>" <<std::endl;
-  // pipeline.AddPass<AsyncCollectiveCreator>(std::move(config));
-
   // Convert BF16 and F8 operations to F32 and F16 respectively so that the CPU
   // backend can support BF16/F8 operations without directly implementing a
   // BF16/F8 lowering for most ops.
@@ -877,15 +866,6 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
     pipeline.AddPass<SubByteNormalization>(
         SubByteNormalization::SET_ELEMENT_SIZE);
   }
-
-  AsyncCollectiveCreator::CollectiveCreatorConfig config;
-  config.convert_all_reduce = HloPredicateTrue;
-  config.convert_collective_permute = HloPredicateTrue;
-  config.convert_all_gather = HloPredicateTrue;
-  config.convert_reduce_scatter = HloPredicateTrue;
-  config.convert_all_to_all = HloPredicateTrue;
-  std::cout << "pipeline.AddPass<AsyncCollectiveCreator>" <<std::endl;
-  pipeline.AddPass<AsyncCollectiveCreator>(std::move(config));
 
   return pipeline.Run(module).status();
 }

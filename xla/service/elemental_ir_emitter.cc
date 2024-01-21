@@ -3236,7 +3236,6 @@ llvm_ir::ElementGenerator ElementalIrEmitter::MakeElementGenerator(
       };
     default:
       return [hlo](const IrArray::Index& index) {
-        // CHECK(false);
         return Unimplemented("Unhandled opcode for elemental IR emission: %s",
                              HloOpcodeString(hlo->opcode()));
       };

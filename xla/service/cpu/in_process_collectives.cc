@@ -525,7 +525,7 @@ absl::Status InProcessCollectivesCommunicator::AllReduce(
     const RendezvousKey& key, ReductionKind reduction_kind,
     PrimitiveType element_type, size_t num_elements,
     const void* const input_buffer, void* const output_buffer,
-    absl::Duration timeout, bool is_async) {
+    absl::Duration timeout) {
   AllReduceParticipantData participant(key, rank_);
   participant.element_count = num_elements;
   participant.primitive_type = element_type;
@@ -645,12 +645,6 @@ InProcessCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> devices,
   return std::make_shared<InProcessCollectivesCommunicator>(state_.get(), rank,
                                                             devices.size());
 }
-
-
-absl::Status InProcessCollectivesCommunicator::WaitAll(const RendezvousKey& key){
-  // TODO error that it's not implemented
-}
-
 
 }  // namespace runtime
 }  // namespace cpu

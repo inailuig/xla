@@ -2859,8 +2859,6 @@ XlaOp XlaBuilder::AllReduceImpl(XlaOp operand,
                                 const std::optional<Shape>& layout,
                                 const std::optional<bool> use_global_device_ids,
                                 bool async) {
-  std::cout << " AllReduceImpl async was" << async << std::endl;
-  async=true;
   return ReportErrorOrReturn([&]() -> StatusOr<XlaOp> {
     HloInstructionProto instr;
     TF_ASSIGN_OR_RETURN(const Shape* operand_shape, GetShapePtr(operand));
@@ -3377,10 +3375,9 @@ XlaOp XlaBuilder::AllReduce(XlaOp operand, const XlaComputation& computation,
                             const std::optional<ChannelHandle>& channel_id,
                             const std::optional<Shape>& shape_with_layout,
                             const std::optional<bool> use_global_device_ids) {
-  std::cout << "XlaBuilder::AllReduce setting async true" << std::endl;
   return AllReduceImpl(operand, computation, replica_groups, channel_id,
                        shape_with_layout, use_global_device_ids,
-                       /*async =*/true);
+                       /*async =*/false);
 }
 
 XlaOp XlaBuilder::ReduceScatter(
@@ -5040,8 +5037,6 @@ XlaOp AllReduce(const XlaOp operand, const XlaComputation& computation,
                 const std::optional<ChannelHandle>& channel_id,
                 const std::optional<Shape>& shape_with_layout,
                 const std::optional<bool> use_global_device_ids) {
-  std::cout << "XlaOp AllReduce" << std::endl;
-
   return operand.builder()->AllReduce(operand, computation, replica_groups,
                                       channel_id, shape_with_layout,
                                       use_global_device_ids);

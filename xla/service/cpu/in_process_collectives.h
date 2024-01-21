@@ -42,7 +42,7 @@ class InProcessCollectivesCommunicator : public CollectivesCommunicator {
   absl::Status AllReduce(const RendezvousKey& key, ReductionKind reduction_kind,
                          PrimitiveType element_type, size_t num_elements,
                          const void* input_buffer, void* output_buffer,
-                         absl::Duration timeout, bool is_async) override;
+                         absl::Duration timeout) override;
 
   absl::Status CollectivePermute(const RendezvousKey& key, size_t num_bytes,
                                  std::optional<int> source_rank,
@@ -64,8 +64,6 @@ class InProcessCollectivesCommunicator : public CollectivesCommunicator {
                              PrimitiveType element_type, size_t chunk_elems,
                              const void* input_buffer, void* output_buffer,
                              absl::Duration timeout) override;
-
-  absl::Status WaitAll(const RendezvousKey& key) override; // TODO error that it's not implemented
 
  private:
   InProcessCollectivesState* state_;

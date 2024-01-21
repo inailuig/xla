@@ -173,7 +173,6 @@ absl::Status XlaAllReduce::operator()(
     CustomCall::TensorRef<int64_t> replica_groups, int64_t channel_id,
     int32_t use_global_device_ids, int64_t op_id,
     int32_t reduction_kind) const {
-  std::cout << "XlaAllReduce::operator" << std::endl;
   if (replica_groups.shape.size() != 2) {
     return absl::InvalidArgumentError("replica_groups must be a 2d tensor.");
   }
@@ -216,141 +215,10 @@ absl::Status XlaAllReduce::operator()(
   return absl::OkStatus();
 }
 
-
-
-
-
-// TODO not sure if this is necessary, it seems not (added it to figure out where I need to register)
-
-
-namespace {
-struct XlaAllReduceStart {
-  absl::Status operator()(const ExecutableRunOptions* run_options,
-                          CustomCall::RemainingArgs buffers,
-                          CustomCall::TensorRef<int64_t> replica_groups,
-                          int64_t channel_id, int32_t use_global_device_ids,
-                          int64_t op_id, int32_t reduction_kind) const;
-  static XlaAllReduceStart Handler() { return XlaAllReduceStart(); }
-};
-}  // namespace
-
-absl::Status XlaAllReduceStart::operator()(
-    const ExecutableRunOptions* run_options, CustomCall::RemainingArgs buffers,
-    CustomCall::TensorRef<int64_t> replica_groups, int64_t channel_id,
-    int32_t use_global_device_ids, int64_t op_id,
-    int32_t reduction_kind) const {
-  std::cout << "XlaAllReduceStart::operator" << std::endl;
-  if (replica_groups.shape.size() != 2) {
-    return absl::InvalidArgumentError("replica_groups must be a 2d tensor.");
-  }
-
-  if (buffers.size() % 2) {
-    return absl::InvalidArgumentError(
-        "number of input buffers and output buffers must be equal.");
-  }
-
-  std::string replica_groups_str = ReplicaGroupsToString(replica_groups);
-  int64_t num_buffers = static_cast<int64_t>(buffers.size()) / 2;
-
-  llvm::SmallVector<void*> input_buffers, output_buffers;
-  ShapeProto shape;
-  for (int i = 0; i < num_buffers; ++i) {
-    auto input = buffers.get<MemrefView>(i);
-    auto output = buffers.get<MemrefView>(i + num_buffers);
-    if (!succeeded(input) || !succeeded(output)) {
-      return absl::InvalidArgumentError("all arguments must be memrefs.");
-    }
-
-    *shape.add_tuple_shapes() =
-        ShapeUtil::MakeShapeWithDescendingLayout(input->dtype, input->sizes)
-            .ToProto();
-    input_buffers.push_back(input->data);
-    output_buffers.push_back(output->data);
-  }
-  std::string shape_str =
-      (shape.tuple_shapes().size() == 1 ? shape.tuple_shapes(0) : shape)
-          .SerializeAsString();
-
-  __xla_cpu_runtime_AllReduceStart(
-      run_options, replica_groups_str.c_str(),
-      static_cast<int32_t>(replica_groups_str.size()),
-      static_cast<int32_t>(channel_id), use_global_device_ids, op_id,
-      reduction_kind, shape_str.c_str(), static_cast<int32_t>(shape_str.size()),
-      static_cast<int32_t>(num_buffers), input_buffers.data(),
-      output_buffers.data());
-
-  return absl::OkStatus();
-}
-
-
-namespace {
-struct XlaAllReduceDone {
-  absl::Status operator()(const ExecutableRunOptions* run_options,
-                          CustomCall::RemainingArgs buffers,
-                          CustomCall::TensorRef<int64_t> replica_groups,
-                          int64_t channel_id, int32_t use_global_device_ids,
-                          int64_t op_id, int32_t reduction_kind) const;
-  static XlaAllReduceDone Handler() { return XlaAllReduceDone(); }
-};
-}  // namespace
-
-absl::Status XlaAllReduceDone::operator()(
-    const ExecutableRunOptions* run_options, CustomCall::RemainingArgs buffers,
-    CustomCall::TensorRef<int64_t> replica_groups, int64_t channel_id,
-    int32_t use_global_device_ids, int64_t op_id,
-    int32_t reduction_kind) const {
-  std::cout << "XlaAllReduceDone::operator" << std::endl;
-
-  std::string replica_groups_str = ReplicaGroupsToString(replica_groups);
-
-  __xla_cpu_runtime_AllReduceDone(
-      run_options, replica_groups_str.c_str(),
-      static_cast<int32_t>(replica_groups_str.size()),
-      static_cast<int32_t>(channel_id), use_global_device_ids, op_id);
-
-  return absl::OkStatus();
-}
-
-
-
-
 static bool AllReduce(xla::runtime::ExecutionContext* ctx, void** args,
                       void** attrs, void** rets) {
   static auto* handler =
       CustomCall::Bind("xla.cpu.all_reduce")
-          .UserData<const ExecutableRunOptions*>()
-          .RemainingArgs()
-          .Attr<CustomCall::TensorRef<int64_t>>("replica_groups")
-          .Attr<int64_t>("channel_handle")
-          .Attr<int32_t>("use_global_device_ids")
-          .Attr<int64_t>("op_id")
-          .Attr<int32_t>("reduction_kind")
-          .To<RuntimeChecks()>(XlaAllReduce::Handler())
-          .release();
-  return succeeded(Executable::Call(ctx, *handler, args, attrs, rets));
-}
-
-static bool AllReduceStart(xla::runtime::ExecutionContext* ctx, void** args,
-                      void** attrs, void** rets) {
-  static auto* handler =
-      CustomCall::Bind("xla.cpu.all_reduce_start")
-          .UserData<const ExecutableRunOptions*>()
-          .RemainingArgs()
-          .Attr<CustomCall::TensorRef<int64_t>>("replica_groups")
-          .Attr<int64_t>("channel_handle")
-          .Attr<int32_t>("use_global_device_ids")
-          .Attr<int64_t>("op_id")
-          .Attr<int32_t>("reduction_kind")
-          .To<RuntimeChecks()>(XlaAllReduce::Handler())
-          .release();
-  return succeeded(Executable::Call(ctx, *handler, args, attrs, rets));
-}
-
-
-static bool AllReduceDone(xla::runtime::ExecutionContext* ctx, void** args,
-                      void** attrs, void** rets) {
-  static auto* handler =
-      CustomCall::Bind("xla.cpu.all_reduce_done")
           .UserData<const ExecutableRunOptions*>()
           .RemainingArgs()
           .Attr<CustomCall::TensorRef<int64_t>>("replica_groups")
@@ -482,8 +350,6 @@ static bool CollectivePermute(xla::runtime::ExecutionContext* ctx, void** args,
 void PopulateXlaCpuCollectivesCall(
     xla::runtime::DirectCustomCallRegistry& registry) {
   registry.Register("xla.cpu.all_reduce", &xla::cpu::AllReduce);
-  registry.Register("xla.cpu.all_reduce_start", &xla::cpu::AllReduceStart);
-  registry.Register("xla.cpu.all_reduce_done", &xla::cpu::AllReduceDone);
   registry.Register("xla.cpu.tuple_all_to_all", &xla::cpu::TupleAllToAll);
   registry.Register("xla.cpu.collective_permute", &xla::cpu::CollectivePermute);
   registry.Register("xla.cpu.partition_id", &xla::cpu::PartitionId);

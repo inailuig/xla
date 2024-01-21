@@ -135,59 +135,15 @@ MpiCollectivesCommunicator::~MpiCollectivesCommunicator() {
   MPI_Comm_free(&comm_);
 };
 
-MPI_Request globalr;
-
 absl::Status MpiCollectivesCommunicator::AllReduce(
     const RendezvousKey& key, ReductionKind reduction_kind,
     PrimitiveType element_type, size_t num_elements, const void* input_buffer,
-    void* output_buffer, absl::Duration timeout, bool is_async) {
-
-  // force sync for testing
-  // is_async=false;
-  // async_requests_.insert(std::make_tuple(key.op_id, std::vector<MPI_Request>()));
-
-  std::cout << "MpiCollectivesCommunicator::AllReduce" << std::endl;
-
+    void* output_buffer, absl::Duration timeout) {
   TF_ASSIGN_OR_RETURN(MPI_Datatype type, PrimitiveTypeToMpiType(element_type));
   TF_ASSIGN_OR_RETURN(MPI_Op op, ReductionKindToMpiOp(reduction_kind, type));
-  if (input_buffer == output_buffer){
-      input_buffer = MPI_IN_PLACE;
-  }
-  if (is_async){
-    int64_t op_id = key.op_id;
-    MPI_Request request;
-    std::cout << "MPI_Iallreduce " << input_buffer <<" "<< output_buffer << " "<< num_elements << std::endl;
-    TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(MPI_Iallreduce(input_buffer, output_buffer, num_elements, type, op, comm_, &request)));
-
-    std::vector <MPI_Request> requests;
-    requests.push_back(std::move(request));
-
-    auto r = async_requests_.insert({op_id, std::move(requests)});
-    if (!r.second){
-      return absl::UnknownError(absl::StrCat("duplicate op_id"));
-    }
-    return absl::OkStatus();
-  }
-  else{
-    return MpiErrorToAbslStatus(MPI_Allreduce(input_buffer, output_buffer,num_elements, type, op, comm_));
-  }
-
+  return MpiErrorToAbslStatus(MPI_Allreduce(input_buffer, output_buffer,
+                                            num_elements, type, op, comm_));
 }
-
-absl::Status MpiCollectivesCommunicator::WaitAll(const RendezvousKey& key){
-  int64_t op_id = key.op_id;
-  auto it = async_requests_.find(op_id);
-  if (it==async_requests_.end()){
-    return absl::UnknownError(absl::StrCat("op_id does not exist"));
-  }
-  std::vector<MPI_Request> requests = std::move(it->second);
-  async_requests_.erase(it);
-  TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(MPI_Waitall(requests.size(), requests.data(), MPI_STATUS_IGNORE)));
-  std::cout << "MPI_Waitall done " << requests.size()<<std::endl;
-  return absl::OkStatus();
-
-}
-
 
 absl::Status MpiCollectivesCommunicator::CollectivePermute(
     const RendezvousKey& key, size_t num_bytes, std::optional<int> source_rank,
@@ -202,9 +158,8 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
   if (source_rank) {
     if (*source_rank == rank) {
       std::memcpy(output_buffer, input_buffer, num_bytes);
-      std::cout << "memcpy to self rank " << rank << std::endl;
     } else {
-      std::cout << "recv at " << rank << " from " << *source_rank << std::endl;
+      VLOG(1) << "recv at " << rank << " from " << *source_rank;
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Irecv(output_buffer, num_bytes, MPI_BYTE, *source_rank, tag,
@@ -212,12 +167,11 @@ absl::Status MpiCollectivesCommunicator::CollectivePermute(
     }
   } else {
     std::memset(output_buffer, 0, num_bytes);
-    std::cout << "memset 0 rank " << rank << std::endl;
   }
 
   for (int target : target_ranks) {
     if (target != rank) {
-      std::cout << "send from " << rank << " to " << target  << std::endl;;
+      VLOG(1) << "send from " << rank << " to " << target;
       requests.emplace_back();
       TF_RETURN_IF_ERROR(MpiErrorToAbslStatus(
           MPI_Isend(input_buffer, num_bytes, MPI_BYTE, target, tag, comm_,
@@ -322,7 +276,6 @@ MpiCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> global_devices,
   } else {
     color = MPI_UNDEFINED;
   }
-  std::cout << mpi_world_rank_ << " color " << color << std::endl;
   context = std::make_shared<MpiCollectivesCommunicator>(color, key);
   return context;
 }

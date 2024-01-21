@@ -570,7 +570,6 @@ StatusOr<std::unique_ptr<HloInstruction>> HloInstruction::CreateFromProto(
       std::vector<ReplicaGroup> replica_groups(proto.replica_groups().begin(),
                                                proto.replica_groups().end());
       if (opcode == HloOpcode::kAllReduce) {
-        std::cout << "calling CreateAllReduce" << std::endl;
         instruction =
             CreateAllReduce(shape, all_operands(), computations(0),
                             replica_groups, proto.constrain_layout(),
@@ -583,8 +582,7 @@ StatusOr<std::unique_ptr<HloInstruction>> HloInstruction::CreateFromProto(
             shape, all_operands(), computations(0), replica_groups,
             proto.constrain_layout(), channel_id, proto.use_global_device_ids(),
             scatter_dimension);
-      } else { // HloOpcode::kAllReduceStart
-        std::cout << "calling CreateAllReduceStart" << std::endl;
+      } else {
         instruction =
             CreateAllReduceStart(shape, all_operands(), computations(0),
                                  replica_groups, proto.constrain_layout(),
@@ -3897,17 +3895,12 @@ Status HloInstruction::Visit(DfsHloVisitorBase<HloInstructionPtr>* visitor) {
     case HloOpcode::kAllGatherDone:
       return visitor->HandleAllGatherDone(this);
     case HloOpcode::kAllReduce:
-      std::cout << "visitor->HandleAllReduce(this)" << std::endl;
       return visitor->HandleAllReduce(this);
     case HloOpcode::kReduceScatter:
       return visitor->HandleReduceScatter(this);
     case HloOpcode::kAllReduceStart:
-      std::cout << "visitor->HandleAllReduceStart(this)" << std::endl;
-      // return visitor->HandleAllReduce(this);
       return visitor->HandleAllReduceStart(this);
     case HloOpcode::kAllReduceDone:
-      std::cout << "visitor->HandleAllReduceDone(this)" << std::endl;
-      // return visitor->HandleAllReduce(this);
       return visitor->HandleAllReduceDone(this);
     case HloOpcode::kAllToAll:
       return visitor->HandleAllToAll(this);

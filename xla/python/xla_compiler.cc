@@ -256,7 +256,6 @@ Status PyRegisterCustomCallTarget(const std::string& fn_name,
         "Argument to RegisterCustomCallTargetRegistry was not a "
         "xla._CUSTOM_CALL_TARGET capsule.");
   }
-  // std::cout << "PyRegisterCustomCallTarget " <<  fn_name << std::endl;
   CustomCallTargetRegistry::Global()->Register(
       fn_name, static_cast<void*>(capsule), platform);
   return OkStatus();

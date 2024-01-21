@@ -560,7 +560,6 @@ Status ShapeVerifier::HandleReduceScatter(HloInstruction* hlo) {
 }
 
 Status ShapeVerifier::HandleAllReduceStart(HloInstruction* hlo) {
-  std::cout << "ShapeVerifier::HandleAllReduceStart" << std::endl;
   auto ar = Cast<HloAllReduceInstruction>(hlo);
   TF_ASSIGN_OR_RETURN(CollectiveOpGroupMode group_mode,
                       GetCollectiveOpGroupMode(ar->channel_id().has_value(),

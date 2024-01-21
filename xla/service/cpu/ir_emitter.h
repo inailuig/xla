@@ -145,17 +145,6 @@ class IrEmitter : public DfsHloVisitorWithDefault,
   Status HandleConvolution(HloInstruction* convolution) override;
   Status HandleFft(HloInstruction* fft) override;
   Status HandleAllReduce(HloInstruction* crs) override;
-
-
-  // note to sel: this is the place where you need ot add stuff
-  // to override IrEmitter::DefaultAction in the base class
-  // name somehow corresponds to the one with dashes
-  Status HandleAllReduceStart(HloInstruction* crs) override;
-  Status HandleAllReduceDone(HloInstruction* crs) override;
-  Status HandleAsyncStart(HloInstruction* crs) override;
-  Status HandleAsyncDone(HloInstruction* crs) override;
-
-
   Status HandleReduceScatter(HloInstruction* crs) override;
   Status HandleCollectivePermute(HloInstruction* crs) override;
   Status HandleInfeed(HloInstruction* instruction) override;
@@ -204,9 +193,7 @@ class IrEmitter : public DfsHloVisitorWithDefault,
   Status HandlePadToStatic(HloInstruction* hlo);
   Status HandleTopK(HloInstruction* hlo);
   Status HandleAllReduceSingleReplica(HloInstruction* crs);
-  Status HandleAllReduceMultipleReplica(HloInstruction* crs, bool is_async);
-  Status HandleAllReduceDoneMultipleReplica(HloInstruction* crs);
-  Status HandleAsyncDoneMultipleReplica(HloInstruction* crs);
+  Status HandleAllReduceMultipleReplica(HloInstruction* crs);
 #if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
   Status HandleOneDnnMatMul(HloInstruction* hlo);
   Status HandleOneDnnSoftmax(HloInstruction* hlo);

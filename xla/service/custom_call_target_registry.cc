@@ -14,7 +14,6 @@ limitations under the License.
 ==============================================================================*/
 
 #include "xla/service/custom_call_target_registry.h"
-#include <iostream>
 
 namespace xla {
 
@@ -26,8 +25,6 @@ CustomCallTargetRegistry* CustomCallTargetRegistry::Global() {
 void CustomCallTargetRegistry::Register(const std::string& symbol,
                                         void* address,
                                         const std::string& platform) {
-  // std::cout << "CustomCallTargetRegistry::Register " << symbol << std::endl;
-  //CHECK(!symbol.compare("__xla_cpu_runtime_AllGather"))
   std::lock_guard<std::mutex> lock(mu_);
   registered_symbols_[std::make_pair(symbol, platform)] = address;
 }

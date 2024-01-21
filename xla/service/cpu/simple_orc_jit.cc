@@ -408,7 +408,6 @@ llvm::Expected<std::unique_ptr<SimpleOrcJIT>> SimpleOrcJIT::Create(
 llvm::orc::ExecutorSymbolDef SimpleOrcJIT::ResolveRuntimeSymbol(
     llvm::StringRef name) {
   void* func_addr = nullptr;
-  std::cout << "SimpleOrcJIT::ResolveRuntimeSymbol " << name.str() << std::endl;
   if (name.size() > 1 && name.front() == data_layout_.getGlobalPrefix()) {
     // On Mac OS X, 'name' may have a leading underscore prefix, even though the
     // registered name may not.
@@ -486,12 +485,6 @@ bool RegisterKnownJITSymbols() {
   REGISTER_CPU_RUNTIME_SYMBOL(AcquireInfeedBufferForDequeue);
   REGISTER_CPU_RUNTIME_SYMBOL(AcquireOutfeedBufferForPopulation);
   REGISTER_CPU_RUNTIME_SYMBOL(AllReduce);
-
-  // note to self: this is their hack to register __xla_cpu_runtime_XXX
-  REGISTER_CPU_RUNTIME_SYMBOL(AllReduceStart);
-  REGISTER_CPU_RUNTIME_SYMBOL(AllReduceDone);
-  REGISTER_CPU_RUNTIME_SYMBOL(AsyncDone);
-
   REGISTER_CPU_RUNTIME_SYMBOL(CollectivePermute);
   REGISTER_CPU_RUNTIME_SYMBOL(AllToAll);
   REGISTER_CPU_RUNTIME_SYMBOL(AllGather);
